@@ -6,11 +6,16 @@ library(knitr)
 library(stargazer)
 library(ggfortify)
 library(gridExtra)
+library(naniar)
+
 
 
 
 # read data
 df <- read.csv("prot_country_year_pop_mil.csv")
+
+# look at NAs
+gg_miss_var(df)
 
 # table and image path
 table_path <- "tables/"
