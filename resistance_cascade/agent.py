@@ -211,6 +211,9 @@ class Citizen(RandomWalker):
         # random movement
         self.random_move()
 
+        if all(self.neighbors) and self.condition == "Support":
+            log.debug(f"Agent {self.unique_id} is {self.condition}")
+
     def update_neighbors(self):
         """
         Look around and see who my neighbors are

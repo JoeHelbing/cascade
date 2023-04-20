@@ -41,7 +41,7 @@ class ResistanceCascade(mesa.Model):
         security_vision=7,
         max_jail_term=30,
         movement=True,
-        multiple_agents_per_cell=False,
+        multiple_agents_per_cell=True,
         private_preference_distribution_mean=0,
         standard_deviation=1,
         epsilon=0.5,
@@ -122,9 +122,9 @@ class ResistanceCascade(mesa.Model):
             # epsilon error term sigmoid value
             epsilon_probability = self.sigmoid(epsilon)
             # threshold for opposition
-            oppose_threshold = self.sigmoid(self.threshold - abs(epsilon))
+            oppose_threshold = self.sigmoid(self.threshold - self.epsilon + epsilon)
             # threshold for activation
-            active_threshold = self.sigmoid(self.threshold + abs(epsilon))
+            active_threshold = self.sigmoid(self.threshold)
             citizen = Citizen(
                 self.next_id(),
                 self,

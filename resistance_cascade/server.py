@@ -118,7 +118,7 @@ model_params = dict(
     epsilon=Slider("Epsilon", 1, 0, 1.5, 0.1),
     # network=Checkbox("Network", value=False),
     random_seed=Checkbox("Flip to Using Random Seeds", value=False),
-    multiple_agents_per_cell=Checkbox("Multiple Agents Per Cell", value=False),
+    multiple_agents_per_cell=Checkbox("Multiple Agents Per Cell", value=True),
     seed=NumberInput("User Chosen Fixed Seed", value=42),
 )
 canvas_element = mesa.visualization.CanvasGrid(portrayal, 40, 40, 480, 480)
