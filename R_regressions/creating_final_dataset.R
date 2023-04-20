@@ -145,8 +145,8 @@ ori_rows <- nrow(protest_filtered)
 # drop countries in protest filtered in list of protest_only
 protest_filtered <- protest_filtered[!protest_filtered$country %in% protest_only, ]
 
-# drop all columns in vdem except for Country, year, v2x_polyarchy, v2x_libdem, v2x_partipdem, v2x_delibdem, v2x_egaldem, country_text_id
-vdem <- vdem[, c(1, 2, 4, 23, 27, 31, 35, 39)]
+# remove all columns except the wanted columns
+vdem <- vdem[, c("country", "country_text_id", "year", "v2x_polyarchy", "v2x_civlib", "v2x_clpol", "v2x_clpriv", "v2x_freexp_altinf", "v2x_frassoc_thick", "v2xcl_disc", "v2x_freexp", "v2xcs_ccsi")]
 
 # Create a data frame of all possible country-year combinations
 all_country_years <- expand.grid(
@@ -196,7 +196,7 @@ colnames(pop)[2] <- "country_text_id"
 pop_countries <- unique(pop$country_text_id)
 
 # Get unique countries in protest_filtered
-protest_countries <- unique(complete_counted_df$country_text_id)
+protest_countries <- unique(merged_df$country_text_id)
 
 # Find countries in protest_filtered that are not in pop
 protest_only <- setdiff(protest_countries, pop_countries)
@@ -209,7 +209,6 @@ print(sort(protest_only))
 
 # merge population data with protest data
 head(pop)
-
 pop_tidy <- pop %>%
   pivot_longer(
     cols = -c(country, country_text_id, Indicator.Name, Indicator.Code),
@@ -260,7 +259,6 @@ names(inflation)
 # change the column name of Country.Name to Country
 colnames(inflation)[1] <- "country"
 colnames(inflation)[2] <- "country_text_id"
-names()
 
 inflation_tidy <- inflation %>%
   pivot_longer(
@@ -450,4 +448,4 @@ tail(merged_data)
 tail(merged_data)
 dim(merged_data)
 # # write merged_summ to csv
-write.csv(merged_data, "prot country year pop_mil.csv")
+write.csv(merged_data, "prot_country_year_pop_mil.csv")
