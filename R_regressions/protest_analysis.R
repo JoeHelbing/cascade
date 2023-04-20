@@ -6,15 +6,21 @@ library(knitr)
 library(stargazer)
 library(ggfortify)
 library(gridExtra)
-
-
+library(naniar)
 
 # read data
 df <- read.csv("prot_country_year_pop_mil.csv")
 
+# drop 'X' column
+df <- subset(df, select = -X)
+
+# look at NAs
+gg_miss_var(df)
+
 # table and image path
 table_path <- "tables/"
 
+names(df)
 # only autocracies by v2x_polyarchy less than 0.5
 df_poly_aut <- df[df$v2x_polyarchy < 0.5, ]
 
@@ -22,9 +28,12 @@ df_poly_aut <- df[df$v2x_polyarchy < 0.5, ]
 df_poly_aut_sub <- df_poly_aut[df_poly_aut$per_mil < 120, ]
 
 ################################################################################
-# PLOTS IN PAPER #
+################################################################################
+# PLOTS IN PAPER AND MODELS IN PAPER#
+################################################################################
 ################################################################################
 
+################################################################################
 # log transformed plot per_mil by v2x_polyarchy
 plot_poly_aut <- ggplot(df_poly_aut, aes(x = v2x_polyarchy, y = log_per_mil)) +
     geom_point() +
@@ -35,7 +44,8 @@ plot_poly_aut <- ggplot(df_poly_aut, aes(x = v2x_polyarchy, y = log_per_mil)) +
         axis.text = element_text(size = 14),
         axis.title = element_text(size = 16),
         plot.title = element_text(size = 20)
-    )
+    ) +
+  theme_bw()
 
 # Display the plot
 plot_poly_aut
@@ -45,20 +55,156 @@ image_name <- "Log of Protests per Million People by V-Dem Polyarchy Score of Au
 ggsave(filename = paste0(table_path, image_name), plot = plot_poly_aut, width = 10, height = 6, dpi = 300)
 
 
+# lin reg with econ covar polyarchy < 0.5
+# expanding v2x_polyarchy by 100
+df_poly_aut$v2x_polyarchy_100 <- 100 * df_poly_aut$v2x_polyarchy
+
+# selected covs log transformed
+model_poly_log <- lm(
+  log_per_mil ~ v2x_polyarchy_100 +
+    gdp_growth +
+    gdp_growth_lag +
+    gdppc_growth +
+    gdppc_growth_lag +
+    standardized_gdp +
+    gdppc,
+  data = df_poly_aut
+)
+summary(model_poly_log, digits = 3)
+stargazer(model_poly_log, type = "text", title = "Model 3: Polyarchy Autocracy with Covariates Log Transformed")
+
+latex_filename <- paste0(table_path, "Model_3_Polyarchy_Autocracy_with_Covariates_Log_Transformed.html")
+stargazer(model_poly_log, type = "html", title = "Model 3: Polyarchy Autocracy with Covariates Log Transformed", out = latex_filename)
+
+# ggplot model_poly_log residuals with color by country
+diagnostic_plots <- autoplot(model_poly_log, ncol = 2, nrow = 2)
+diagnostic_plots
+
+# Extract each plot from the diagnostic_plots object
+plot_1 <- diagnostic_plots[[1]]
+plot_2 <- diagnostic_plots[[2]]
+plot_3 <- diagnostic_plots[[3]]
+plot_4 <- diagnostic_plots[[4]]
+
+# Combine the plots in a 2x2 grid
+combined_plot <- gridExtra::arrangeGrob(plot_1, plot_2, plot_3, plot_4, ncol = 2, nrow = 2)
+
+# Save the combined plot
+image_filename <- paste0(table_path, "Model_2_Polyarchy_Autocracy_with_Covariates_Log_Transformed.png")
+ggsave(image_filename, combined_plot, width = 10, height = 10, units = "in")
+
+################################################################################
+# bivariate lin reg of polyarcy < 0.5
+# expanding v2x_polyarchy by 100
+df$v2x_polyarchy_100 <- 100 * df$v2x_polyarchy
+
+# selected covs log transformed
+model_poly_log <- lm(
+  log_per_mil ~ v2x_polyarchy_100,
+  data = df_poly_aut
+)
+summary(model_poly_log, digits = 3)
+latex_filename <- paste0(table_path, "Model_1_Polyarchy_Autocracy_no_Covariates_Log_Transformed.tex")
+stargazer(model_poly_log, type = "latex", title = "Model 1: Polyarchy Autocracy no Covariates Log Transformed", out = latex_filename)
+
+################################################################################
+# pulling NA econ covariate values for df_poly_aut out for analysis seperately
+columns_to_check <- c("inflation", "gdp", "gdp_growth", "gdppc", "gdppc_growth", 
+                      "standardized_gdp", "gdp_growth_lag", "inflation_lag", 
+                      "gdppc_growth_lag" )
+df_poly_with_na <- df_poly_aut[apply(df_poly_aut[columns_to_check], 1, function(x) any(is.na(x))), ]
+
+head(df_poly_with_na)
+dim(df_poly_with_na)
+
+# log transformed plot per_mil by v2x_polyarchy only econ covar NAs
+plot_poly_aut_na <- ggplot(df_poly_with_na, aes(x = v2x_polyarchy, y = log_per_mil)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = TRUE, color = "red") +
+  labs(x = "Polyarchy Score", y = "Log of Protests per Million People") +
+  ggtitle("Log of Protests per Million People by V-Dem Polyarchy Score of \nAuthoritarian Countries only NA Covar") +
+  theme(
+    axis.text = element_text(size = 14),
+    axis.title = element_text(size = 16),
+    plot.title = element_text(size = 20)
+  ) +
+  theme_bw()
+
+# Display the plot
+plot_poly_aut_na
+
+# Save the plot as an image
+image_name <- "Log of Protests per Million People by V-Dem Polyarchy Score of Authoritarian Countries Using Only Dropped Econ Covariates.png"
+ggsave(filename = paste0(table_path, image_name), plot = plot_poly_aut_na, width = 10, height = 6, dpi = 300)
+
+
+# lin reg with econ covar polyarchy < 0.5
+# expanding v2x_polyarchy by 100
+df_poly_with_na$v2x_polyarchy_100 <- 100 * df_poly_with_na$v2x_polyarchy
+
+# log transformed lin reg
+model_poly_log <- lm(
+  log_per_mil ~ v2x_polyarchy_100,
+  data = df_poly_with_na
+)
+summary(model_poly_log, digits = 3)
+latex_filename <- paste0(table_path, "Model_3_Polyarchy_Autocracy_no_Covariates_Log_Transformed Only Dropped Econ.tex")
+stargazer(model_poly_log, type = "latex", title = "Model 3: Polyarchy Autocracy no Covariates Log Transformed Using Only Dropped Econ Covariates", out = latex_filename)
+
+################################################################################
+# Full dataset for polyarchy including democracies
+# log transformed plot per_mil by v2x_polyarchy only econ covar NAs
+plot_polyarchy <- ggplot(df, aes(x = v2x_polyarchy, y = log_per_mil)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = TRUE, color = "red") +
+  labs(x = "Polyarchy Score", y = "Log of Protests per Million People") +
+  ggtitle("Log of Protests per Million People by V-Dem Polyarchy Score of \nAll Countries Including Democracies") +
+  theme(
+    axis.text = element_text(size = 14),
+    axis.title = element_text(size = 16),
+    plot.title = element_text(size = 20)
+  ) +
+  theme_bw()
+
+# Display the plot
+plot_polyarchy
+
+# Save the plot as an image
+image_name <- "Log of Protests per Million People by V-Dem Polyarchy Score of ALL Countries.png"
+ggsave(filename = paste0(table_path, image_name), plot = plot_polyarchy, width = 10, height = 6, dpi = 300)
+
+
+# log transformed lin reg
+model_poly_log <- lm(
+  log_per_mil ~ v2x_polyarchy_100,
+  data = df
+)
+summary(model_poly_log, digits = 3)
+latex_filename <- paste0(table_path, "Model_4_Polyarchy_All_Countries_no_Covariates_Log_Transformed.tex")
+stargazer(model_poly_log, type = "latex", title = "Model 4: Polyarchy All Countries No Covariates Log Transformed", out = latex_filename)
+
+
+################################################################################
+# EXPERIMENTS AND TESTING #
+################################################################################
+
+
+################################################################################
 # linear plot per_mil by v2x_polyarchy
 lin_plot_poly_aut <- ggplot(
-    df_poly_aut,
-    aes(x = v2x_polyarchy, y = per_mil, color = country)
+  df_poly_aut,
+  aes(x = v2x_polyarchy, y = per_mil, color = country)
 ) +
-    geom_point() +
-    geom_smooth(method = "lm", se = TRUE, color = "red") +
-    labs(x = "Polyarchy Score", y = "Protests per Million People") +
-    ggtitle("Protests per Million People by V-Dem Polyarchy Score of Authoritarian Countries") +
-    theme(
-        axis.text = element_text(size = 14),
-        axis.title = element_text(size = 16),
-        plot.title = element_text(size = 20)
-    )
+  geom_point() +
+  geom_smooth(method = "lm", se = TRUE, color = "red") +
+  labs(x = "Polyarchy Score", y = "Protests per Million People") +
+  ggtitle("Protests per Million People by V-Dem Polyarchy Score of Authoritarian Countries") +
+  theme(
+    axis.text = element_text(size = 14),
+    axis.title = element_text(size = 16),
+    plot.title = element_text(size = 20)
+  ) +
+  theme_bw()
 
 # Display the plot
 lin_plot_poly_aut
@@ -67,39 +213,39 @@ lin_plot_poly_aut
 image_name <- "Protests per Million People by V-Dem Polyarchy Score of Authoritarian Countries.png"
 ggsave(filename = paste0(table_path, image_name), plot = lin_plot_poly_aut, width = 10, height = 6, dpi = 300)
 
+################################################################################
 # log transformed plot per_mil by v2x_polyarchy where per mil is less than 120
 plot_poly_aut_sub <- ggplot(df_poly_aut_sub, aes(x = v2x_polyarchy, y = log_per_mil)) +
-    geom_point() +
-    geom_smooth(method = "lm", se = TRUE, color = "red") +
-    labs(x = "Polyarchy Score", y = "Log of Protests per Million People") +
-    ggtitle("Log Transform Protests per Million People (no outliers < 120 per mil)") +
-    theme(
-        axis.text = element_text(size = 14),
-        axis.title = element_text(size = 16),
-        plot.title = element_text(size = 20)
-    )
+  geom_point() +
+  geom_smooth(method = "lm", se = TRUE, color = "red") +
+  labs(x = "Polyarchy Score", y = "Log of Protests per Million People") +
+  ggtitle("Log Transform Protests per Million People (no outliers < 120 per mil)") +
+  theme(
+    axis.text = element_text(size = 14),
+    axis.title = element_text(size = 16),
+    plot.title = element_text(size = 20)
+  ) +
+  theme_bw()
 
 # Display the plot
 plot_poly_aut_sub
 
 # Linear plot per_mil by v2x_polyarchy where per mil is less than 120
 lin_plot_poly_aut_sub <- ggplot(df_poly_aut_sub, aes(x = v2x_polyarchy, y = per_mil)) +
-    geom_point() +
-    geom_smooth(method = "lm", se = TRUE, color = "red") +
-    labs(x = "Polyarchy Score", y = "Protests per Million People") +
-    ggtitle("Protests per Million People (no outliers < 120 per mil)") +
-    theme(
-        axis.text = element_text(size = 14),
-        axis.title = element_text(size = 16),
-        plot.title = element_text(size = 20)
-    )
+  geom_point() +
+  geom_smooth(method = "lm", se = TRUE, color = "red") +
+  labs(x = "Polyarchy Score", y = "Protests per Million People") +
+  ggtitle("Protests per Million People (no outliers < 120 per mil)") +
+  theme(
+    axis.text = element_text(size = 14),
+    axis.title = element_text(size = 16),
+    plot.title = element_text(size = 20)
+  ) +
+  theme_bw()
 
 # Display the plot
 lin_plot_poly_aut_sub
 
-################################################################################
-# MODELS IN PAPER #
-################################################################################
 
 # expanding v2x_polyarchy by 100
 df_poly_aut$v2x_polyarchy_100 <- 100 * df_poly_aut$v2x_polyarchy
@@ -388,6 +534,7 @@ model_poly_log <- lm(
 )
 stargazer(model_poly_log, type = "text", title = "Model 2: Polyarchy Autocracy")
 plot(model_poly_log)
+
 # simple linear models
 model_poly_log <- lm(
     log_per_mil ~ v2x_polyarchy +
