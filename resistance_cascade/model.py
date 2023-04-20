@@ -96,6 +96,7 @@ class ResistanceCascade(mesa.Model):
         # agent counts
         self.support_count = 0
         self.active_count = 0
+        self.oppose_count = 0
 
         # viva la resistance
         self.revolution = False
@@ -174,7 +175,7 @@ class ResistanceCascade(mesa.Model):
             "Citizen Count": self.count_citizen,
             "Active Count": self.count_active,
             "Support Count": self.count_support,
-            "Oppo Count": self.count_oppose,
+            "Oppose Count": self.count_oppose,
             "Jail Count": self.count_jail,
             "Speed of Spread": self.speed_of_spread,
             "Security Density": self.report_security_density,
@@ -239,8 +240,8 @@ class ResistanceCascade(mesa.Model):
                or agent.condition == "Jailed" 
                for agent in self.schedule.agents 
                if type(agent) is Citizen):
-            log.debug(f"Stop conditiom met at iteration {self.iteration}, Viva la Revolution!")
-            print(f"Stop conditiom met at iteration {self.iteration}, Viva la Revolution!")
+            log.debug(f"Stop conditiom met at iteration {self.iteration}, Viva la Revolucion!")
+            print(f"Stop conditiom met at iteration {self.iteration}, Viva la Revolucion!")
             self.revolution = True
             self.running = False
 
@@ -250,6 +251,7 @@ class ResistanceCascade(mesa.Model):
         # update agent counts
         self.active_count = self.count_active(self)
         self.support_count = self.count_support(self)
+        self.oppose_count = self.count_oppose(self)
 
         # update iteration
         self.iteration += 1

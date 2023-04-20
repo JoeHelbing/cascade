@@ -10,20 +10,17 @@ AGENT_SUPPORT_COLOR = "#648FFF"
 AGENT_ACTIVE_COLOR = "#FE6100"
 AGENT_OPPOSE_COLOR = "#A020F0"
 
-
-class CitizenChart(TextElement):
-    """Display the current citizen population."""
-
-    def render(self, model):
-        return f"Total Citizen Population: {model.citizen_count}"
-
-
 class ActiveChart(TextElement):
     """Display the current active population."""
 
     def render(self, model):
         return f"Active Population: {model.active_count}"
 
+class OpposeChart(TextElement):
+    """Display the current publicly oppose population."""
+
+    def render(self, model):
+        return f"Oppose Population: {model.oppose_count}"
 
 class SupportChart(TextElement):
     """Display the current publicly (regime) supporting population."""
@@ -32,23 +29,16 @@ class SupportChart(TextElement):
         return f"Supporting Population: {model.support_count}"
 
 
-class JailChart(TextElement):
-    """Display the current publicly (regime) supporting population."""
-
-    def render(self, model):
-        return f"Supporting Population: {model.jail_count}"
-
-
-citizen_chart = CitizenChart()
 active_chart = ActiveChart()
 support_chart = SupportChart()
-jail_chat = JailChart()
+oppose_chart = OpposeChart()
 
 count_chart = ChartModule(
     [
         {"Label": "Support Count", "Color": "#648FFF"},
         {"Label": "Active Count", "Color": "#FE6100"},
         {"Label": "Jail Count", "Color": "#000000"},
+        {"Label": "Oppose Count", "Color": "#A020F0"},
     ],
     data_collector_name="datacollector",
 )
@@ -107,16 +97,14 @@ model_params = dict(
     height=40,
     width=40,
     citizen_density=Slider("Initial Agent Density", 0.7, 0.0, 0.9, 0.1),
-    # citizen_vision=Slider("Citizen Vision", 7, 1, 10, 1),
-    # security_vision=Slider("Security Vision", 7, 1, 10, 1),
+    citizen_vision=Slider("Citizen Vision", 7, 1, 10, 1),
+    security_vision=Slider("Security Vision", 7, 1, 10, 1),
     security_density=Slider("Security Density", 0.00, 0.0, 0.09, 0.01),
-    # max_jail_term=Slider("Maximum Jail Term", 30, 1, 50, 5),
+    max_jail_term=Slider("Maximum Jail Term", 30, 1, 50, 5),
     private_preference_distribution_mean=Slider(
         "Mean of Regime Preference", 0, -1, 1, 0.1
     ),
-    # standard_deviation=Slider("Standard Deviation of Regime Preference", 1, 0, 2, 0.1),
     epsilon=Slider("Epsilon", 1, 0, 1.5, 0.1),
-    # network=Checkbox("Network", value=False),
     random_seed=Checkbox("Flip to Using Random Seeds", value=False),
     multiple_agents_per_cell=Checkbox("Multiple Agents Per Cell", value=True),
     seed=NumberInput("User Chosen Fixed Seed", value=42),
@@ -126,9 +114,9 @@ server = mesa.visualization.ModularServer(
     ResistanceCascade,
     [
         canvas_element,
-        citizen_chart,
         active_chart,
         support_chart,
+        oppose_chart,
         count_chart,
         chart_spread_speed,
     ],

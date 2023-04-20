@@ -278,8 +278,9 @@ class Citizen(RandomWalker):
         active_ratio = (actives_in_vision + opposed_in_vision) / total_in_vision
 
         # perceptions of support/oppose/active
-        perception = np.log(actives_in_vision + opposed_in_vision ) / (
-            self.epsilon**2 + 0.05
+        perception = np.exp(
+            np.log(actives_in_vision + opposed_in_vision * self.epsilon_probability)
+            / (self.epsilon**2 + 0.05)
         )
 
         # Probability of arrest P
