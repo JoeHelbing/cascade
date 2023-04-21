@@ -170,6 +170,12 @@ class Citizen(RandomWalker):
         self.ever_flipped = False
         self.memory = None
         self.condition = "Support"
+        self.perception = None
+        self.arrest_prob = None
+        self.actives_in_vision = 1
+        self.opposed_in_vision = 0
+        self.support_in_vision = 0
+        self.security_in_vision = 0
 
         # agent jail attributes
         self.jail_sentence = 0
@@ -211,9 +217,6 @@ class Citizen(RandomWalker):
         # random movement
         self.random_move()
 
-        if all(self.neighbors) and self.condition == "Support":
-            log.debug(f"Agent {self.unique_id} is {self.condition}")
-
     def update_neighbors(self):
         """
         Look around and see who my neighbors are
@@ -229,29 +232,23 @@ class Citizen(RandomWalker):
         Count the number of neighbors of each type
         """
         # Initialize count variables
-        actives_in_vision = 1
-        opposed_in_vision = 0
-        support_in_vision = 0
-        security_in_vision = 0
+        self.actives_in_vision = 1
+        self.opposed_in_vision = 0
+        self.support_in_vision = 0
+        self.security_in_vision = 0
 
         # Loop through neighbors and count agent types
         for active in self.neighbors:
             if isinstance(active, Citizen):
                 if active.condition == "Active":
-                    actives_in_vision += 1
+                   self. actives_in_vision += 1
                 elif active.condition == "Oppose":
-                    opposed_in_vision += 1
+                    self.opposed_in_vision += 1
                 elif active.condition == "Support":
-                    support_in_vision += 1
+                    self.support_in_vision += 1
             elif isinstance(active, Security):
-                security_in_vision += 1
+                self.security_in_vision += 1
 
-        return (
-            actives_in_vision,
-            opposed_in_vision,
-            support_in_vision,
-            security_in_vision,
-        )
 
     def determine_condition(self):
         """
@@ -259,36 +256,31 @@ class Citizen(RandomWalker):
         or activate.
         """
         # return count of neighbor types
-        (
-            actives_in_vision,
-            opposed_in_vision,
-            support_in_vision,
-            security_in_vision,
-        ) = self.count_neigbhors()
+        self.count_neigbhors()
 
         # total number of neighbors in vision
         total_in_vision = (
-            actives_in_vision
-            + opposed_in_vision
-            + support_in_vision
-            + security_in_vision
+            self.actives_in_vision
+            + self.opposed_in_vision
+            + self.support_in_vision
+            + self.security_in_vision
         )
 
         # ratio of active and oppose to citizens in vision
-        active_ratio = (actives_in_vision + opposed_in_vision) / total_in_vision
+        self.active_ratio = (self.actives_in_vision + self.opposed_in_vision) / total_in_vision
 
         # perceptions of support/oppose/active
-        perception = np.exp(
-            np.log(actives_in_vision + opposed_in_vision * self.epsilon_probability)
+        self.perception = np.exp(
+            np.log(self.actives_in_vision + self.opposed_in_vision * self.epsilon_probability)
             / (self.epsilon**2 + 0.05)
         )
 
         # Probability of arrest P
-        arrest_prob = 1 - np.exp(
+        self.arrest_prob = 1 - np.exp(
             # constant that produces 0.9 at 1 active (self) and 1 security
             -2.3
             # ratio of securtiy to actives where self is active always
-            * (security_in_vision / (actives_in_vision))
+            * (self.security_in_vision / (self.actives_in_vision))
             # 0 epsilon, ie no error is 0.5 sigmoid probability output
             # where 2 * epsilon is 1.0, aka 1 * probability, aka perfect estimation
             * (2 * self.epsilon_probability)
@@ -301,23 +293,22 @@ class Citizen(RandomWalker):
             (-1 * self.private_preference)
             # perception as a function of the inverse of epsilon squared interacted
             # with the number of actives and opposed in vision
-            + (perception * active_ratio)
+            + (self.perception * self.active_ratio)
             # agents expectation of arrest probability as a function of epsilon
             # interacted with expected cost of arrest interacted with epsilon
-            - arrest_prob * (self.model.max_jail_term * self.epsilon_probability)
         )
 
-        self.activation = self.model.sigmoid(self.opinion)
+        self.activation = self.model.sigmoid(self.opinion) - self.arrest_prob
 
         # assign condition by activation level
-        if self.oppose_threshold < self.activation < self.active_threshold:
+        if self.activation > self.oppose_threshold:
             self._update_condition = "Oppose"
-        elif self.activation > self.active_threshold:
+        if self.activation > self.active_threshold:
             if self._update_condition != "Active":
                 self.flip = True
                 self.ever_flipped = True
             self._update_condition = "Active"
-        else:
+        if self.activation < self.oppose_threshold and self.activation < self.active_threshold:
             self._update_condition = "Support"
 
 
@@ -352,6 +343,13 @@ class Security(RandomWalker):
         self.jail_sentence = None
         self.flip = None
         self.ever_flipped = None
+        self.perception = None
+        self.arrest_prob = None
+        self.actives_in_vision = None
+        self.opposed_in_vision = None
+        self.support_in_vision = None
+        self.security_in_vision = None
+
 
     def step(self):
         """

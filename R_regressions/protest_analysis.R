@@ -20,7 +20,17 @@ gg_miss_var(df)
 # table and image path
 table_path <- "tables/"
 
-names(df)
+civ_lib_col <- c("v2xcl_disc", 
+  "v2x_freexp", 
+  "v2x_civlib", 
+  "v2x_clpol", 
+  "v2x_clpriv", 
+  "v2x_freexp_altinf", 
+  "v2x_frassoc_thick", 
+  "v2xcs_ccsi"
+  )
+
+theme_update(plot.title = element_text(hjust = 0.5))
 
 ################################################################################
 ################################################################################
@@ -37,13 +47,14 @@ plot_poly_aut <- ggplot(df_poly_aut, aes(x = v2x_polyarchy, y = log_per_mil)) +
     geom_point() +
     geom_smooth(method = "lm", se = TRUE, color = "red") +
     labs(x = "Polyarchy Score", y = "Log of Protests per Million People") +
-    ggtitle("Log of Protests per Million People by V-Dem Polyarchy Score of Authoritarian Countries") +
+    ggtitle("Log of Protests per Million People by V-Dem \nPolyarchy Index of Authoritarian Countries") +
+    theme_bw() +
     theme(
-        axis.text = element_text(size = 14),
-        axis.title = element_text(size = 16),
-        plot.title = element_text(size = 20)
-    ) +
-  theme_bw()
+        axis.text = element_text(size = 16),
+        axis.title = element_text(size = 18),
+        plot.title = element_text(hjust = 0.5, size = 20),
+    )
+  
 
 # Display the plot
 plot_poly_aut
@@ -749,6 +760,86 @@ model_poly_log <- lm(
 summary(model_poly_log, digits = 3)
 latex_filename <- paste0(table_path, "Model_20_CCSI_Aut_Countries_no_Covariates_Log_Transformed.tex")
 stargazer(model_poly_log, type = "latex", title = "Model 20: Core Civil Society Index Authoritarian Countries No Covariates Log Transformed", out = latex_filename)
+
+################################################################################
+# function for creating for loop of civ lib plots and models 
+create_polyarchy_civ_graphs_and_tables <- function(df, columns) {
+  
+  # Ensure the table path ends with a slash
+  table_path_loop <- "tables/polyarchy_civ_lib/"
+  
+  for (column in columns) {
+    # Multiply by 100
+    df[[paste0(column, "_100")]] <- 100 * df[[column]]
+    
+    column_name_no_underscore <- gsub("_", " ", column)
+
+    # Create plot
+    plot <- ggplot(df, aes_string(x = column, y = "log_per_mil")) +
+      geom_point() +
+      geom_smooth(method = "lm", se = TRUE, color = "red") +
+      labs(x = column, y = "Log of Protests per Million People") +
+      ggtitle(paste0(column_name_no_underscore, " for Countries Years below Polyarchy Index < 0.5 \nand Protest Per Million Inhabitant per Year Log Transformed")) +
+      theme_bw() +
+      theme(
+          axis.text = element_text(size = 16),
+          axis.title = element_text(size = 18),
+          plot.title = element_text(hjust = 0.5, size = 20),
+      )
+
+    # Save the plot as an image
+    image_name <- paste0("Log of Protests per Million People by ", column,".png")
+    ggsave(filename = paste0(table_path_loop, image_name), plot = plot, width = 10, height = 6, dpi = 300)
+
+    # Log transformed linear regression
+    model_formula <- as.formula(paste("log_per_mil ~", paste0(column, "_100")))
+    model_poly_log <- lm(model_formula, data = df)
+
+    summary(model_poly_log, digits = 3)
+    latex_filename <- paste0(table_path_loop, "Model_", column, "_Log_Transformed.tex")
+    stargazer(model_poly_log, type = "latex", title = paste0("Model: ", column_name_no_underscore, " for Countries Years below Polyarchy Index < 0.5 \nand Protest Per Million Inhabitant per Year Log Transformed"), out = latex_filename, column.names = c("log_per_mil", column_name_no_underscore))
+  }
+}
+# Call the function with your dataset, list of columns, and output folder path
+create_polyarchy_civ_graphs_and_tables(df_poly_aut, civ_lib_col)
+
+################################################################################
+# recreating plots for ccsi and freexp alti of autocracies
+plot_ccsi <- ggplot(df_poly_aut, aes(x = v2xcs_ccsi, y = log_per_mil)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = TRUE, color = "red") +
+  labs(x = "Core Civil Society Index", y = "Log of Protests per Million People") +
+  ggtitle("Core Civil Society Index for Country Years below Polyarchy Index < 0.5 \nand Protest per Million Inhabitant per Year Log Transformed") +
+  theme_bw() +
+  theme(
+      axis.text = element_text(size = 16),
+      axis.title = element_text(size = 18),
+      plot.title = element_text(hjust = 0.5, size = 20),
+  )
+
+plot_ccsi
+
+# Save the plot as an image
+image_name <- "Core Civil Society Index.png"
+ggsave(filename = paste0(table_path, image_name), plot = plot_ccsi, width = 10, height = 6, dpi = 300)
+
+plot_alt <- ggplot(df_poly_aut, aes(x = v2x_freexp_altinf, y = log_per_mil)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = TRUE, color = "red") +
+  labs(x = "Freedom of Expression and Alternative Sources of Information Index", y = "Log of Protests per Million People") +
+  ggtitle("Freedom of Expression and Alternative Sources of Information Index for Country Years below Polyarchy Index < 0.5 \nand Protest per Million Inhabitant per Year Log Transformed") +
+  theme_bw() +
+  theme(
+      axis.text = element_text(size = 16),
+      axis.title = element_text(size = 18),
+      plot.title = element_text(hjust = 0.5, size = 20),
+  )
+
+plot_alt
+
+# Save the plot as an image
+image_name <- "Freedom of Expression and Alternative Sources of Information Index.png"
+ggsave(filename = paste0(table_path, image_name), plot = plot_alt, width = 10, height = 6, dpi = 300)
 
 
 ################################################################################
