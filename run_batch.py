@@ -1,6 +1,8 @@
 import logging as log
 import os
 from mpi4py import MPI
+from datetime import datetime
+
 
 # Initialize MPI
 comm = MPI.COMM_WORLD
@@ -18,6 +20,19 @@ os.makedirs(log_path, exist_ok=True)
 data_path = os.path.join(cwd, "./data/")
 os.makedirs(data_path, exist_ok=True)
 
+# Get the current date as a string in the format 'YYYY-MM-DD'
+current_date = datetime.now().strftime("%Y-%m-%d")
+
+# Create a date folder in the data directory
+date_data_path = os.path.join(data_path, current_date)
+os.makedirs(date_data_path, exist_ok=True)
+
+# Create model and agent folders inside the date folder
+os.makedirs(os.path.join(date_data_path, "model/"), exist_ok=True)
+os.makedirs(os.path.join(date_data_path, "agent/"), exist_ok=True)
+os.makedirs(os.path.join(date_data_path, "model_end/"), exist_ok=True)
+
+
 from resistance_cascade.model import ResistanceCascade
 from mesa.batchrunner import FixedBatchRunner
 import pandas as pd
@@ -33,11 +48,11 @@ fixed_parameters = {
 }
 
 params = {
-    "seed": [*range(324, 329)],
+    "seed": [*range(213490, 213495)],
     "private_preference_distribution_mean": [-1, -0.8, -0.5, -0.3, 0],
-    "security_density": [0.00, 0.01, 0.02],
-    "epsilon": [0.1, 0.2, 0.5, 0.8, 1],
-    "threshold": [1.38629, 1.7346, 2.19722, 2.94444, 3.66356, 4.18459, 4.59512],
+    "security_density": [0.00, 0.01, 0.02, 0.04, 0.07, 0.09],
+    "epsilon": [0.1, 0.2, 0.5, 0.8, 1, 1.5],
+    "threshold": [0, 1.38629, 1.7346, 2.19722, 2.94444, 3.66356, 4.18459, 4.59512],
 }
 
 # params = {
@@ -105,6 +120,8 @@ agent_reporters = {
     "security_in_vision": "security_in_vision",
     "perception": "perception",
     "arrest_prob": "arrest_prob",
+    "active_level": "active_level",
+    "oppose_level": "oppose_level",
     "flip": "flip",
     "ever_flipped": "ever_flipped",
     "model_seed": "dc_seed",
@@ -117,44 +134,68 @@ agent_reporters = {
 # Generate the list of all possible parameter combinations
 all_parameters_list = list(dict_product(params))
 print(f"Number of parameter combinations: {len(all_parameters_list)}")
+log.info(f"Number of parameter combinations: {len(all_parameters_list)}")
 # Divide the parameter list into blocks of 20
-block_size = 20
+block_size = 5
 parameter_blocks = chunks(all_parameters_list, block_size)
 print(f"Number of blocks: {len(parameter_blocks)}")
+log.info(f"Number of blocks: {len(parameter_blocks)}")
 max_steps = 500
 # Initialize the dynamic load balancing
 if rank == 0:  # If it's the master rank
     next_block_index = 0
-    for i in range(1, size):  # Assign an initial block to each worker rank
-        comm.send((parameter_blocks[next_block_index], next_block_index), dest=i, tag=100)
-        next_block_index += 1
+    received_blocks = 0  # Add a counter for received blocks
 
-    # Create a folder to store the CSV files
-    cwd = os.getcwd()
-    path = os.path.join(cwd, "data/")
-    os.makedirs(f"{path}/model/", exist_ok=True)
+    for i in range(1, size):  # Assign an initial block to each worker rank
+        if next_block_index < len(parameter_blocks):
+            comm.send(
+                (parameter_blocks[next_block_index], next_block_index), dest=i, tag=100
+            )
+            next_block_index += 1
+        else:
+            comm.send(("DONE", -1), dest=i, tag=100)
 
     # Receive the results from the worker ranks and write them to CSV files
-    while next_block_index < len(parameter_blocks):
+    while received_blocks < len(parameter_blocks):  # Change the loop condition
         data = comm.recv(source=MPI.ANY_SOURCE, tag=200)
-        rank_sender, block_num, batch_end_model, batch_step_model_raw = data
+        (
+            rank_sender,
+            block_num,
+            batch_end_model,
+            batch_step_model_raw,
+            batch_step_agent_raw,
+        ) = data
         print(f"Received block {block_num} from rank {rank_sender}")
+        log.info(f"Received block {block_num} from rank {rank_sender}")
+
+        batch_end_model.to_parquet(
+            f"{date_data_path}/model_end/model_block_{block_num}_rank_{rank_sender}.parquet"
+        )
+
+        for key, df in batch_step_model_raw.items():
+            df.to_parquet(
+                f"{date_data_path}/model/model_seed_{key[0]}_pp_{key[1]}_sd{key[2]}_ep_{key[3]}_th{key[4]}.parquet"
+            )
+        for key, df in batch_step_agent_raw.items():
+            df.to_parquet(
+                f"{date_data_path}/agent/agent_seed_{key[0]}_pp_{key[1]}_sd{key[2]}_ep_{key[3]}_th{key[4]}.parquet"
+            )
+
+        received_blocks += 1  # Increment the received blocks counter
 
         # Send a new block to the worker rank that just finished
         if next_block_index < len(parameter_blocks):
-            comm.send((parameter_blocks[next_block_index], next_block_index), dest=rank_sender, tag=100)
+            comm.send(
+                (parameter_blocks[next_block_index], next_block_index),
+                dest=rank_sender,
+                tag=100,
+            )
             next_block_index += 1
             print(f"Sent block {next_block_index} to rank {rank_sender}")
+            log.info(f"Sent block {next_block_index} to rank {rank_sender}")
         else:
             comm.send(("DONE", -1), dest=rank_sender, tag=100)
 
-        batch_end_model.to_csv(f"{path}/model_block_{block_num}_rank_{rank_sender}.csv")
-
-        for key, df in batch_step_model_raw.items():
-            df.to_csv(
-                f"{path}/model/model_seed_{key[0]}_pp_{key[1]}_sd{key[2]}_ep_{key[3]}_th{key[4]}.csv"
-            )
-        
 
 else:  # If it's a worker rank
     while True:
@@ -178,9 +219,20 @@ else:  # If it's a worker rank
 
         batch_end_model = batch_run.get_model_vars_dataframe()
         batch_step_model_raw = batch_run.get_collector_model()
+        batch_step_agent_raw = batch_run.get_collector_agents()
 
         # Send the results back to the master rank for writing
-        comm.send((rank, block_num, batch_end_model, batch_step_model_raw), dest=0, tag=200)
+        comm.send(
+            (
+                rank,
+                block_num,
+                batch_end_model,
+                batch_step_model_raw,
+                batch_step_agent_raw,
+            ),
+            dest=0,
+            tag=200,
+        )
 
 # When all blocks have been processed, the master rank sends a "DONE" message to each worker rank
 if rank == 0:
@@ -217,7 +269,7 @@ if rank == 0:
 #     batch_end_model = batch_run.get_model_vars_dataframe()
 #     # batch_end_agent = batch_run.get_agent_vars_dataframe()
 #     batch_step_model_raw = batch_run.get_collector_model()
-#     # batch_step_agent_raw = batch_run.get_collector_agents()
+# batch_step_agent_raw = batch_run.get_collector_agents()
 
 #     cwd = os.getcwd()
 #     path = os.path.join(cwd, "data/")
