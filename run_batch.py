@@ -49,10 +49,10 @@ fixed_parameters = {
 
 params = {
     "seed": [*range(990, 995)],
-    "private_preference_distribution_mean": [-1, -0.8, -0.5, -0.3, 0],
+    "private_preference_distribution_mean": [-1, -0.8, -0.5],
     "security_density": [0.01, 0.02, 0.04],
     "epsilon": [0.1, 0.2, 0.5, 0.8, 1, 1.5],
-    "threshold": [0, 1.38629, 1.7346, 2.19722, 2.94444, 3.66356, 4.18459, 4.59512],
+    "threshold": [3.66356],
 }
 
 # params = {
