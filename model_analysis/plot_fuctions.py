@@ -14,9 +14,9 @@ import glob
 import os
 import tqdm
 
-model_path = os.getcwd() + "/data/2023-04-22/model/"
-agent_path = os.getcwd() + "/data/2023-04-22/agent/"
-image_path = os.getcwd() + "/model_analysis/2023-04-22/"
+model_path = os.getcwd() + "/data/2023-04-23/model/"
+agent_path = os.getcwd() + "/data/2023-04-23/agent/"
+image_path = os.getcwd() + "/model_analysis/2023-04-23/"
 
 os.makedirs(image_path, exist_ok=True)
 
@@ -53,7 +53,7 @@ def load_and_process_file(file_path):
     df["file_name"] = file_name
 
     df["Model"] = df.apply(
-        lambda row: f"Seed {row['Seed']} SD{row['Security Density']} PP {row['Private Preference']} EP {row['Epsilon']} Th {row['Threshold']}",
+        lambda row: f"Seed {row['Seed']} SD{row['Security Density']} PP {row['Private Preference']} EP {row['Episilon']} Th {row['Threshold']}",
         axis=1,
     )
 
@@ -644,6 +644,43 @@ def histogram_over_half(df, file=None):
 
     # Display the plot
     plt.show()
+
+def count_over_half_private_preference(df, file=None):
+
+    # Filter the DataFrame for Revolution == True
+    filtered_df = df[df["Over Half"] == True]['Model'].drop_duplicates()
+
+    # Pull all models that have a revolution
+    over_half_df = df[df['Model'].isin(filtered_df)]
+
+    # Group the data by Epsilon, Seed, and Model, and count the unique models
+    grouped_df = over_half_df.groupby(['Private Preference', 'Epsilon', 'Model']).size().reset_index(name='Count')
+
+    # Filter the grouped_df to keep only rows with Count >= 1
+    filtered_grouped_df = grouped_df[grouped_df['Count'] >= 1]
+
+    # Aggregate the counts by Epsilon and Seed
+    agg_df = filtered_grouped_df.groupby(['Private Preference', 'Epsilon']).size().reset_index(name='Count')
+
+    # Set the style for the plot
+    sns.set(style='whitegrid')
+
+    # Create the bar plot
+    plt.figure(figsize=(10, 6))
+    sns.barplot(data=agg_df, x='Private Preference', y='Count', hue='Epsilon', palette='coolwarm')
+
+    # Customize the plot
+    plt.title('Count of Models that Reached Over Half for Different Private Preferences')
+    plt.xlabel('Private Preference')
+    plt.ylabel('Count of Models')
+
+    # Save the figure at 300 dpi
+    if file:
+        plt.savefig(image_path + file + 'pri_pref_count_models_over_half.png', dpi=300, bbox_inches='tight')
+
+    # Display the plot
+    plt.show()
+
 
 def histogram_pri_pref(model_1, model_2, df):
     from mpl_toolkits.axes_grid1.inset_locator import inset_axes

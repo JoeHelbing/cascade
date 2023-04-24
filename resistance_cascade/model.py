@@ -100,7 +100,7 @@ class ResistanceCascade(mesa.Model):
 
         ########################################################################
         ########################################################################
-        """        
+        """
         Section for creating agents at initialization within the model
         """
         for i in range(self.citizen_count):
@@ -113,7 +113,7 @@ class ResistanceCascade(mesa.Model):
                 pos = (x, y)
             # normal distribution of private regime preference
             private_preference = self.random.gauss(
-                self.private_preference_distribution_mean, self.standard_deviation
+                self.private_preference_distribution_mean, 1
             )
             # error term for information controlled society
             epsilon = self.random.gauss(0, self.epsilon)
@@ -235,8 +235,12 @@ class ResistanceCascade(mesa.Model):
         """
         self.schedule.step()
 
+        # if over .95 of agents are active or in jail, stop the model
+        active_or_jailed_agents = sum(1 for agent in self.schedule.agents if type(agent) is Citizen and (agent.condition == "Active" or agent.condition == "Jailed"))
+        proportion_active_or_jailed = active_or_jailed_agents / self.citizen_count
+
         # check stop condition
-        if all(agent.condition == "Active" or agent.condition == "Jailed" for agent in self.schedule.agents if type(agent) is Citizen):
+        if proportion_active_or_jailed >= 0.95:
             log.debug(f"Stop conditiom met at iteration {self.iteration}, Viva la Revolucion!")
             print(f"Stop conditiom met at iteration {self.iteration}, Viva la Revolucion!")
             self.revolution = True
