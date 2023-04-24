@@ -14,9 +14,9 @@ import glob
 import os
 import tqdm
 
-model_path = os.getcwd() + "/data/2023-04-23/model/"
-agent_path = os.getcwd() + "/data/2023-04-23/agent/"
-image_path = os.getcwd() + "/model_analysis/2023-04-23/"
+model_path = os.getcwd() + "/data/2023-04-22/model/"
+agent_path = os.getcwd() + "/data/2023-04-22/agent/"
+image_path = os.getcwd() + "/model_analysis/2023-04-22/"
 
 os.makedirs(image_path, exist_ok=True)
 
@@ -743,3 +743,28 @@ def fluctuate_active_plot(df, fluctuating_models, file=None):
 
     # Display the plot
     plt.show()
+
+def scatter(df):
+    # Scatterplot party!
+    pass
+    sns.set_theme(style="whitegrid")
+
+    # Do an overall plot to see how things look: 
+    # Note that the transparency and size are low here -- just want a general sense of the data
+    full_data = sns.scatterplot(x="Step Num", y="Count", hue="Animal",  
+                    palette=["green", "black", "blue"], style= "Animal", 
+                    s= 2, hue_order=["Grass", "Wolves", "Sheep"],
+                    markers = {"Grass": "D", "Wolves": "o", "Sheep": "s" }, 
+                    alpha = 0.02,
+                data=batch_long).set(title='Batch Runs: Animal counts over 50 steps from 600 runs')
+
+
+    # Also add in averages for overall
+    # Note that here we have a larger point size and no transparency
+    # Need to fix the legend XXX
+    avg_data = sns.scatterplot(x="Step Num", y="Total_Avg", hue="Animal",  
+                    palette=["green", "black", "blue"], style= "Animal", 
+                    s= 6, hue_order=["Grass", "Wolves", "Sheep"],
+                    markers = {"Grass": "D", "Wolves": "o", "Sheep": "s" }, 
+                data=batch_avgs).legend(labels=["Type of Animal:","Grass", "Wolves", "Sheep"], 
+                                        bbox_to_anchor=(1.02, 0.55)) #note, you can move around as you'd like
