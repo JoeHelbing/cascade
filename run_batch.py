@@ -51,7 +51,7 @@ params = {
     "seed": [*range(990, 995)],
     "private_preference_distribution_mean": [-1, -0.8, -0.5],
     "security_density": [0.01, 0.02, 0.04],
-    "epsilon": [0.1, 0.2, 0.5, 0.8, 1, 1.5],
+    "epsilon": [0.1, 0.2, 0.5, 0.8, 1],
     "threshold": [3.66356],
 }
 
