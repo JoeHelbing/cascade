@@ -39,7 +39,7 @@ class ResistanceCascade(mesa.Model):
         citizen_density=0.7,
         security_density=0.00,
         security_vision=7,
-        max_jail_term=30,
+        max_jail_term=100,
         movement=True,
         multiple_agents_per_cell=True,
         private_preference_distribution_mean=0,
@@ -79,9 +79,6 @@ class ResistanceCascade(mesa.Model):
         self.max_jail_term = max_jail_term
         self.citizen_count = round(self.width * self.height * self.citizen_density)
         self.security_count = round(self.width * self.height * self.security_density)
-        self.network_size = round(
-            (((self.citizen_vision * 2 + 1) ** 2) - 1) * self.citizen_density
-        )
 
         # model setup
         self.max_iters = max_iters
@@ -98,7 +95,7 @@ class ResistanceCascade(mesa.Model):
         self.active_count = 0
         self.oppose_count = 0
 
-        # viva la resistance
+        # viva la revolucion
         self.revolution = False
 
         ########################################################################
@@ -122,10 +119,12 @@ class ResistanceCascade(mesa.Model):
             epsilon = self.random.gauss(0, self.epsilon)
             # epsilon error term sigmoid value
             epsilon_probability = self.sigmoid(epsilon)
+            # threshold calculations
+            thresholds = [self.random.gauss(self.threshold, epsilon) for _ in range(0, 2)]
             # threshold for opposition
-            oppose_threshold = self.sigmoid(self.threshold - self.epsilon + epsilon)
+            oppose_threshold = min(thresholds)
             # threshold for activation
-            active_threshold = self.sigmoid(self.threshold)
+            active_threshold = max(thresholds)
             citizen = Citizen(
                 self.next_id(),
                 self,
@@ -180,7 +179,7 @@ class ResistanceCascade(mesa.Model):
             "Speed of Spread": self.speed_of_spread,
             "Security Density": self.report_security_density,
             "Private Preference": self.report_private_preference,
-            "Episilon": self.report_epsilon,
+            "Epsilon": self.report_epsilon,
             "Threshold": self.report_threshold,
             "Revolution": self.report_revolution,
         }
@@ -200,6 +199,8 @@ class ResistanceCascade(mesa.Model):
             "security_in_vision": lambda a: getattr(a, "security_in_vision", None),
             "perception": lambda a: getattr(a, "perception", None),
             "arrest_prob": lambda a: getattr(a, "arrest_prob", None),
+            "active_level": lambda a: getattr(a, "active_level", None),
+            "oppose_level": lambda a: getattr(a, "oppose_level", None),
             "flip": lambda a: getattr(a, "flip", None),
             "ever_flipped": lambda a: getattr(a, "ever_flipped", None),
             "model_seed": lambda a: getattr(a, "dc_seed", None),
@@ -234,18 +235,8 @@ class ResistanceCascade(mesa.Model):
         """
         self.schedule.step()
 
-        # defecting security outside of step function to avoid errors
-        for agent in self.schedule.agents_by_type[Security].values():
-            if agent.condition == "defect":
-                agent.remove_thyself()
-                del agent
-
-
         # check stop condition
-        if all(agent.condition == "Active" 
-               or agent.condition == "Jailed" 
-               for agent in self.schedule.agents 
-               if type(agent) is Citizen):
+        if all(agent.condition == "Active" or agent.condition == "Jailed" for agent in self.schedule.agents if type(agent) is Citizen):
             log.debug(f"Stop conditiom met at iteration {self.iteration}, Viva la Revolucion!")
             print(f"Stop conditiom met at iteration {self.iteration}, Viva la Revolucion!")
             self.revolution = True
@@ -263,7 +254,6 @@ class ResistanceCascade(mesa.Model):
         self.iteration += 1
         if self.iteration > self.max_iters:
             self.running = False
-
 
     ############################################################################
     ############################################################################
