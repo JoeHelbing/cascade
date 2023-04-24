@@ -48,29 +48,12 @@ fixed_parameters = {
 }
 
 params = {
-    "seed": [*range(990, 995)],
+    "seed": [*range(1000, 1225)],
     "private_preference_distribution_mean": [-1, -0.8, -0.5],
     "security_density": [0.01, 0.02, 0.04],
     "epsilon": [0.1, 0.2, 0.5, 0.8, 1],
     "threshold": [3.66356],
 }
-
-# params = {
-#     "seed": [*range(324, 350)],
-#     "private_preference_distribution_mean": [-1],
-#     "security_density": [0.00],
-#     "epsilon": [0.1],
-#     "threshold": [1.38629],
-# }
-
-
-# single block param for testing purposes
-# params = {
-#     "seed": [1030],
-#     "private_preference_distribution_mean": [-1],
-#     "security_density": [0.01],
-#     "epsilon": [0.1],
-# }
 
 # Helper function to generate all possible combinations of parameters
 def dict_product(dicts):
@@ -238,84 +221,3 @@ else:  # If it's a worker rank
 if rank == 0:
     for i in range(1, size):
         comm.send(("DONE", -1), dest=i, tag=100)
-
-
-# # Create a list of lists to store the blocks assigned to each rank
-# blocks_for_rank = [[] for _ in range(size)]
-
-# # Distribute the blocks in a round-robin fashion among the ranks
-# for block_num, block in enumerate(parameter_blocks):
-#     rank_to_receive = block_num % size
-#     blocks_for_rank[rank_to_receive].append(block)
-
-# # Get the blocks assigned to the current rank
-# blocks_assigned_to_current_rank = blocks_for_rank[rank]
-
-# # Run each block of 50 parameter combinations
-# max_steps = 500
-# for block_num, block in enumerate(blocks_assigned_to_current_rank):
-#     parameters_list = block
-#     batch_run = FixedBatchRunner(
-#         ResistanceCascade,
-#         parameters_list,
-#         fixed_parameters,
-#         model_reporters=model_reporters,
-#         agent_reporters=agent_reporters,
-#         max_steps=max_steps,
-#     )
-
-#     batch_run.run_all()
-
-#     batch_end_model = batch_run.get_model_vars_dataframe()
-#     # batch_end_agent = batch_run.get_agent_vars_dataframe()
-#     batch_step_model_raw = batch_run.get_collector_model()
-# batch_step_agent_raw = batch_run.get_collector_agents()
-
-#     cwd = os.getcwd()
-#     path = os.path.join(cwd, "data/")
-
-#     batch_end_model.to_csv(f"{path}/model_block_{block_num}_rank_{rank}.csv")
-
-#     os.makedirs(f"{path}/model/", exist_ok=True)
-#     for key, df in batch_step_model_raw.items():
-#         df.to_csv(
-#             f"{path}/model/model_seed_{key[0]}_pp_{key[1]}_sd{key[2]}_ep_{key[3]}_th{key[4]}.csv"
-#         )
-
-# # Run each block of 50 parameter combinations
-# for block_num, parameters_list in enumerate(parameter_blocks):
-#     max_steps = 500
-#     batch_run = FixedBatchRunner(
-#         ResistanceCascade,
-#         parameters_list,
-#         fixed_parameters,
-#         model_reporters=model_reporters,
-#         agent_reporters=agent_reporters,
-#         max_steps=max_steps,
-#     )
-
-#     batch_run.run_all()
-
-#     batch_end_model = batch_run.get_model_vars_dataframe()
-#     batch_end_agent = batch_run.get_agent_vars_dataframe()
-#     batch_step_model_raw = batch_run.get_collector_model()
-#     batch_step_agent_raw = batch_run.get_collector_agents()
-
-#     cwd = os.getcwd()
-#     path = os.path.join(cwd, "data/")
-
-#     batch_end_model.to_csv(f"{path}/model_batch_{block_num}.csv")
-
-#     if not os.path.exists(f"{path}/model/"):
-#         os.makedirs(f"{path}/model/")
-#     for key, df in batch_step_model_raw.items():
-#         df.to_csv(
-#             f"{path}/model/model_seed_{key[0]}_pp_{key[1]}_sd{key[2]}_ep_{key[3]}.csv"
-#         )
-
-#     if not os.path.exists(f"{path}/agent/"):
-#         os.makedirs(f"{path}/agent/")
-#     for key, df in batch_step_agent_raw.items():
-#         df.to_csv(
-#             f"{path}/agent/agent_seed_{key[0]}_pp_{key[1]}_sd{key[2]}_ep_{key[3]}.csv"
-#         )
