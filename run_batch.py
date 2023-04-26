@@ -2,7 +2,10 @@ import logging as log
 import os
 from mpi4py import MPI
 from datetime import datetime
+import time
 
+
+start_time = time.time()
 
 # Initialize MPI
 comm = MPI.COMM_WORLD
@@ -40,20 +43,38 @@ from itertools import product
 from resistance_cascade.agent import Citizen, Security
 
 log.basicConfig(filename=f"{cwd}/log/batch.log", level=log.DEBUG)
-log.info("Starting batch run")
 
 # parameters that will remain constant
-fixed_parameters = {
-    "multiple_agents_per_cell": True,
-}
+fixed_parameters = {"multiple_agents_per_cell": True, "threshold": 2.94444}
+
+# params = {
+#     "seed": [*range(344000, 344500)],
+#     "private_preference_distribution_mean": [-1, -0.8, -0.5],
+#     "security_density": [0.01, 0.02, 0.03, 0.04],
+#     "epsilon": [0.1, 0.2, 0.5, 0.8, 1],
+# }
 
 params = {
-    "seed": [*range(1000, 1225)],
-    "private_preference_distribution_mean": [-1, -0.8, -0.5],
-    "security_density": [0.01, 0.02, 0.04],
+    "seed": [*range(344000, 344100)],
+    "private_preference_distribution_mean": [-1, -0.8, -0.5, -0.2, 0],
+    "security_density": [0.01, 0.02, 0.03, 0.04],
     "epsilon": [0.1, 0.2, 0.5, 0.8, 1],
-    "threshold": [3.66356],
 }
+
+# params = {
+#     "seed": [*range(344000, 344500)],
+#     "private_preference_distribution_mean": [-0.9, -0.7, -0.6, -1, -0.8, -0.5],
+#     "security_density": [0.01, 0.02, 0.03, 0.04, 0.05],
+#     "epsilon": [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.5],
+# }
+
+# MidwayCluster Test
+# params = {
+#     "seed": [*range(5500, 5520)],
+#     "private_preference_distribution_mean": [-1],
+#     "security_density": [0.01],
+#     "epsilon": [0.1],
+# }
 
 # Helper function to generate all possible combinations of parameters
 def dict_product(dicts):
@@ -116,16 +137,30 @@ agent_reporters = {
 
 # Generate the list of all possible parameter combinations
 all_parameters_list = list(dict_product(params))
-print(f"Number of parameter combinations: {len(all_parameters_list)}")
-log.info(f"Number of parameter combinations: {len(all_parameters_list)}")
+
+folder_path = "data/2023-04-25/model/"
+
+filenames = os.listdir(folder_path)
+
+# Filter out parameter combinations that already have a corresponding file
+def file_exists(param_dict):
+    filename = f"model_seed_{param_dict['seed']}_pp_{param_dict['private_preference_distribution_mean']}_sd{param_dict['security_density']}_ep_{param_dict['epsilon']}_th{fixed_parameters['threshold']}.parquet"
+    return os.path.exists(os.path.join(folder_path, filename))
+
+filtered_parameters_list = [param_dict for param_dict in all_parameters_list if not file_exists(param_dict)]
+
 # Divide the parameter list into blocks of 20
-block_size = 5
-parameter_blocks = chunks(all_parameters_list, block_size)
-print(f"Number of blocks: {len(parameter_blocks)}")
-log.info(f"Number of blocks: {len(parameter_blocks)}")
+block_size = 10
+parameter_blocks = chunks(filtered_parameters_list, block_size)
 max_steps = 500
 # Initialize the dynamic load balancing
 if rank == 0:  # If it's the master rank
+    log.info("Starting batch run")
+    print(f"Number of parameter combinations: {len(filtered_parameters_list)}")
+    log.info(f"Number of parameter combinations: {len(filtered_parameters_list)}")
+    print(f"Number of blocks: {len(parameter_blocks)}")
+    log.info(f"Number of blocks: {len(parameter_blocks)}")
+
     next_block_index = 0
     received_blocks = 0  # Add a counter for received blocks
 
@@ -144,25 +179,22 @@ if rank == 0:  # If it's the master rank
         (
             rank_sender,
             block_num,
-            batch_end_model,
+            # batch_end_model,
             batch_step_model_raw,
-            batch_step_agent_raw,
+            # batch_step_agent_raw,
         ) = data
+
         print(f"Received block {block_num} from rank {rank_sender}")
         log.info(f"Received block {block_num} from rank {rank_sender}")
 
-        batch_end_model.to_parquet(
-            f"{date_data_path}/model_end/model_block_{block_num}_rank_{rank_sender}.parquet"
-        )
+        # batch_end_model.to_parquet(
+        #     f"{date_data_path}/model_end/model_block_{block_num}_rank_{rank_sender}.parquet"
+        # )
 
-        for key, df in batch_step_model_raw.items():
-            df.to_parquet(
-                f"{date_data_path}/model/model_seed_{key[0]}_pp_{key[1]}_sd{key[2]}_ep_{key[3]}_th{key[4]}.parquet"
-            )
-        for key, df in batch_step_agent_raw.items():
-            df.to_parquet(
-                f"{date_data_path}/agent/agent_seed_{key[0]}_pp_{key[1]}_sd{key[2]}_ep_{key[3]}_th{key[4]}.parquet"
-            )
+        # for key, df in batch_step_agent_raw.items():
+        #     df.to_parquet(
+        #         f"{date_data_path}/agent/agent_seed_{key[0]}_pp_{key[1]}_sd{key[2]}_ep_{key[3]}_th{key[4]}.parquet"
+        #     )
 
         received_blocks += 1  # Increment the received blocks counter
 
@@ -178,6 +210,12 @@ if rank == 0:  # If it's the master rank
             log.info(f"Sent block {next_block_index} to rank {rank_sender}")
         else:
             comm.send(("DONE", -1), dest=rank_sender, tag=100)
+        
+        for key, df in batch_step_model_raw.items():
+            df.to_parquet(
+                f"{date_data_path}/model/model_seed_{key[0]}_pp_{key[1]}_sd{key[2]}_ep_{key[3]}_th{key[4]}.parquet"
+            )
+
 
 
 else:  # If it's a worker rank
@@ -200,18 +238,18 @@ else:  # If it's a worker rank
 
         batch_run.run_all()
 
-        batch_end_model = batch_run.get_model_vars_dataframe()
+        # batch_end_model = batch_run.get_model_vars_dataframe()
         batch_step_model_raw = batch_run.get_collector_model()
-        batch_step_agent_raw = batch_run.get_collector_agents()
+        # batch_step_agent_raw = batch_run.get_collector_agents()
 
         # Send the results back to the master rank for writing
         comm.send(
             (
                 rank,
                 block_num,
-                batch_end_model,
+                # batch_end_model,
                 batch_step_model_raw,
-                batch_step_agent_raw,
+                # batch_step_agent_raw,
             ),
             dest=0,
             tag=200,
@@ -221,3 +259,8 @@ else:  # If it's a worker rank
 if rank == 0:
     for i in range(1, size):
         comm.send(("DONE", -1), dest=i, tag=100)
+
+end_time = time.time()
+time_taken = end_time - start_time
+print(f"Job completed in {time_taken} seconds.")
+log.info(f"Job completed in {time_taken} seconds.")

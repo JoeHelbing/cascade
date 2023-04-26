@@ -113,7 +113,7 @@ class ResistanceCascade(mesa.Model):
                 pos = (x, y)
             # normal distribution of private regime preference
             private_preference = self.random.gauss(
-                self.private_preference_distribution_mean, 1
+                self.private_preference_distribution_mean, self.standard_deviation
             )
             # error term for information controlled society
             epsilon = self.random.gauss(0, self.epsilon)
