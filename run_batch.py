@@ -54,11 +54,19 @@ fixed_parameters = {"multiple_agents_per_cell": True, "threshold": 2.94444}
 #     "epsilon": [0.1, 0.2, 0.5, 0.8, 1],
 # }
 
+# params = {
+#     "seed": [*range(344000, 344100)],
+#     "private_preference_distribution_mean": [-1, -0.8, -0.5, -0.2, 0],
+#     "security_density": [0.01, 0.02, 0.03, 0.04],
+#     "epsilon": [0.1, 0.2, 0.5, 0.8, 1],
+# }
+
 params = {
-    "seed": [*range(344000, 344100)],
-    "private_preference_distribution_mean": [-1, -0.8, -0.5, -0.2, 0],
-    "security_density": [0.01, 0.02, 0.03, 0.04],
-    "epsilon": [0.1, 0.2, 0.5, 0.8, 1],
+    "seed": [344031],
+    "private_preference_distribution_mean": [-0.5],
+    "security_density": [0.02],
+    "epsilon": [0.2, 1],
+    "threshold": [2.94444],
 }
 
 # params = {
@@ -181,7 +189,7 @@ if rank == 0:  # If it's the master rank
             block_num,
             # batch_end_model,
             batch_step_model_raw,
-            # batch_step_agent_raw,
+            batch_step_agent_raw,
         ) = data
 
         print(f"Received block {block_num} from rank {rank_sender}")
@@ -191,10 +199,10 @@ if rank == 0:  # If it's the master rank
         #     f"{date_data_path}/model_end/model_block_{block_num}_rank_{rank_sender}.parquet"
         # )
 
-        # for key, df in batch_step_agent_raw.items():
-        #     df.to_parquet(
-        #         f"{date_data_path}/agent/agent_seed_{key[0]}_pp_{key[1]}_sd{key[2]}_ep_{key[3]}_th{key[4]}.parquet"
-        #     )
+        for key, df in batch_step_agent_raw.items():
+            df.to_parquet(
+                f"{date_data_path}/agent/agent_seed_{key[0]}_pp_{key[1]}_sd{key[2]}_ep_{key[3]}_th{key[4]}.parquet"
+            )
 
         received_blocks += 1  # Increment the received blocks counter
 
@@ -240,7 +248,7 @@ else:  # If it's a worker rank
 
         # batch_end_model = batch_run.get_model_vars_dataframe()
         batch_step_model_raw = batch_run.get_collector_model()
-        # batch_step_agent_raw = batch_run.get_collector_agents()
+        batch_step_agent_raw = batch_run.get_collector_agents()
 
         # Send the results back to the master rank for writing
         comm.send(
@@ -249,7 +257,7 @@ else:  # If it's a worker rank
                 block_num,
                 # batch_end_model,
                 batch_step_model_raw,
-                # batch_step_agent_raw,
+                batch_step_agent_raw,
             ),
             dest=0,
             tag=200,
