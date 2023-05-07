@@ -27,7 +27,7 @@ To use the model interactively, from the repository root directory run:
 
 The console will print the URL, but you can also open your browser directly to [http://127.0.0.1:8521/](http://127.0.0.1:8521/), choose your parameters, press Reset, then Run.
 
-## Files in protest_cascade/
+## Files in resistance_cascade/
 
 * ``model.py``: Core model.
 * ``server.py``: Sets up the interactive visualization.
