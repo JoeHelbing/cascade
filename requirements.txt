@@ -1,5 +1,5 @@
 python==3.11.0
-black==22.10.0 # because everyone should use black
+black==22.10.0 # because everyone should use black formatter
 mesa==1.1.1
 pandas==1.5.2
 numpy==1.24.1
