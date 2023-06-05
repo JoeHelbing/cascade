@@ -75,11 +75,6 @@ $$R = \frac{A+O}{T}$$
 
 $R$ is the ratio of **Active** and **Opposed** Citizens to **Total** Citizens within a the Citizen agent's vision radius. The agent always counts themselves as **Active** and when interacted $L_i$, the Citizen's perception of that ratio, this produces the variable pair that can create resistance cascade events.
 
-<div style="text-align:center">
-    <img src="model_analysis/kde_plot_perception_of_regime_support_high_resolution.png"  width="70%">
-    <p>Figure: KDE Plot of Perception of Regime Support Calculation for Each Epsilon by Actives + Opposed in Vision</p>
-</div>
-
 $$L_i = \frac{log(A+O)}{\epsilon_i^2 + 0.05}$$
 
 $L_i$ is the encapsulation of a Citizen agent's uncertainty of the true *private preferences* of their neighbors. This interacts with their accurate view of the ratio of who in their vicinity is **Active** or **Opposed** to create their perception of regime support. The more information control in a society, the more accurately Citizens are able to understand where "the red line" falls, but the less able they are to understand the closely held true opinions of their neighbors. As epsilon $\epsilon_i$ in $L_i$ gets smaller, it exaggerates the effect of each **Active** Citizen in view. And while it may certainly feel this way sometimes, no person has infinite uncertainty, so a constant 0.05 is added in the denominator to tamper the effect of $\epsilon_i$ at extremely low values. This constant was an arbitrary value decided upon after multiple rounds of testing and comparing model outputs. **Active** and **Opposed** Citizens in view have a dampened effect via the log function. The first **Active** agent has a large effect on moving a Citizen's perception of local regime dissatisfaction but that effect decreases for each additional agent as each agent announcing a negative or anti-regime *public preference* has less informational effect.
