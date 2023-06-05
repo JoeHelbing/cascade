@@ -40,7 +40,7 @@ The console will print the URL, but you can also open your browser directly to [
 
 ## Model Visualization
 <div style="text-align:center">
-    <img src="model_analysis/step_19_cascade.png"  width="40%">
+    <img src="model_analysis/images/step_19_cascade.png"  width="40%">
     <p>Figure: Resistance Cascade Agent Based Model Visualization with Advancing Cascade</p>
 </div>
 
