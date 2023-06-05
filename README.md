@@ -1,5 +1,9 @@
 # Resistance Cascade Model
 
+Paper can be found at:
+[Mentos Regimes: How Individual Uncertainty Affects the Explosive Strength of Resistance Movements—People are the Real Freshmakers
+](https://knowledge.uchicago.edu/record/6083?&ln=en)
+
 ## Summary
 This article looks at the empirical data on protests in authoritarian countries as a function of regime type, then constructs an agent based model to examine how the effect of uncertainty can help explain differences in protest and resistance movements in differing regime types. The agent based model instantiates two agent types, Citizen and Security, and shows how an inverse relationship between uncertainty with regards to costs, acceptable public opposition, the probability of suffering costs, and the ability to accurately perceive local regime support lead to equilibrium flips, aka successful revolutions, or protracted unrest.
 
