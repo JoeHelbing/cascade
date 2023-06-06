@@ -2,7 +2,7 @@
 
 Paper can be found at:
 [Mentos Regimes: How Individual Uncertainty Affects the Explosive Strength of Resistance Movements—People are the Real Freshmakers
-](https://knowledge.uchicago.edu/record/6083?&ln=en)
+](./Resistance%20Cascade%20Thesis.pdf)
 
 ## Summary
 This article looks at the empirical data on protests in authoritarian countries as a function of regime type and information control, then constructs an agent based model to examine how the effect of uncertainty can help explain the differences in protest and resistance movements in these differing regime types. The agent based model instantiates two agent types, Citizen and Security, and shows how an inverse relationship between uncertainty with regards acceptable public opposition, the probability of suffering costs, and the ability to accurately perceive local regime support lead to differences in resistance movements. Analysis focuses on the speed of resistance spread between agents as a function of individual agent level uncertainty, and how this affects total resistance size, either full equilibrium flips, i.e. successful revolutions, or protracted unrest. Investigation of empirical data shows reduced frequency of protests in more authoritarian regimes and regimes with higher levels of information control. Modeling dynamics further confirms this behavior and shows a potential connection between lower information control and more frequent but slower spreading, smaller scale resistance events while higher information control is connected with faster inter-agent resistance spread, and larger resistance levels at a reduced frequency.
@@ -11,14 +11,28 @@ The data cleaning and analysis R scripts for the section Empirical Observations 
 
 The Python code for the agent based model is in the 'resistance_cascade' folder. The model is built using the Mesa framework for agent-based modeling in Python. 
 
+## Files in resistance_cascade/
 
-## How to create a virtual environment using Ananconda and install dependencies
-[Anaconda](https://www.anaconda.com/) is a free and open-source distribution of the Python and R programming languages for scientific computing, that aims to simplify package management and deployment. The following steps will create a virtual environment using Anaconda and install the dependencies.
+* ``model.py``: Core model.
+* ``server.py``: Sets up the interactive visualization.
+* ``agent.py``: Defines the base agent RandomWalker and the inheriting agents Citizen and Security.
+* ``schedule.py``: Defines the base schedule SimultaneousActivationByType and the inheriting schedule with added functions.
 
-replace `abm_resistance_cascade` with the name of your choice
+
+## If Mamba or Conda Not Installed
+Install mamba via
 ```
-    $ conda create -n abm_resistance_cascade --file requirements.txt
-    $ conda activate abm_resistance_cascade
+    $ wget "https://github.com/conda-forge/miniforge/releases/latest/download/Mambaforge-$(uname)-$(uname -m).sh"
+    $ bash Mambaforge-$(uname)-$(uname -m).sh
+
+```
+
+## Create Environment
+The model can be run in a conda environment. To create the environment, from the repository root directory run:
+
+```
+    $ bash create_environment.sh
+    $ mamba activate abm
 ```
 
 ## How to Run
@@ -31,12 +45,13 @@ To use the model interactively, from the repository root directory run:
 
 The console will print the URL, but you can also open your browser directly to [http://127.0.0.1:8521/](http://127.0.0.1:8521/), choose your parameters, press Reset, then Run.
 
-## Files in resistance_cascade/
+To use the model in a batch format, edit the parameters you want to run within the json file in ./resistance_cascade/batch_run_parameters.json, then from the repository root directory run:
 
-* ``model.py``: Core model.
-* ``server.py``: Sets up the interactive visualization.
-* ``agent.py``: Defines the base agent RandomWalker and the inheriting agents Citizen and Security.
-* ``schedule.py``: Defines the base schedule SimultaneousActivationByType and the inheriting schedule with added functions.
+```
+    $ mpirun -np 4 python batch_run.py
+```
+where 4 can be replaced with the number of cores you want to use for the batch run. The batch run will output a set of model level and individual agent level parquet files for
+each individual model run. 
 
 ## Model Visualization
 <div style="text-align:center">
@@ -46,38 +61,116 @@ The console will print the URL, but you can also open your browser directly to [
 
 In the model visualization, circles represent Citizen agents in their three *public preference* states: blue being **Support**, purple being **Oppose**, and red being **Active**. Security are represented by the black squares. 
 
-## Citizen Activation Function
-The full breakdown of how Citizen activation works can be found in the paper, but a simplified explanation is as follows:
+## Model Behavior
+The full breakdown of how Citizen activation works can be found in the paper, but a simplified explanation of model behavior is as follows:
 
-$$\sigma(-P_i - A_iJ_i + RL_i)$$
+The model consists of two types of agent—Citizen agents which are the
+primary agents of question and are the subject of most macro-scale model
+measures, and Security agents. While this paper is mainly focused on the
+complex emergent cascade behaviors of Citizens, the interactions of
+Citizens and the state is core to understanding the processes. In
+multiple case studies of resistance movements, Security forces act as
+the primary foil of Citizens heavily influencing their choices of if,
+how, when, and where to activate publicly. Even in scenarios where a
+cascade has obviously begun, Security forces have significant ability to
+shape events .
 
-- $P_i$ - Private Preference
-- $R$ - Ratio of **A**ctives and **O**pposed to **T**otal Citizen agents in vision.
-- $L_i$ - Moderator of perception of spatially local regime support.
-- $A_i$ - Calculated arrest probability.
-- $J_i$ - Individual expected cost if arrested.
+The primary agent level attribute of Citizen agents is *private
+preference* which derives its theoretical basis from "Now out of Never"
+. In the paper, Kuran defines private preference as some internally held
+opinion on a regime, either for or against the status quo, which at any
+point in time is essentially fixed. Citizens are also defined by a value
+*epsilon* which is the primary point of research for this paper.
+*Epsilon* is the operationalization of uncertainty across various regime
+types and levels of information control. In different regime types,
+those of higher or lower information control, how each individual in
+that society interacts with regime expectations of what is and is not an
+acceptable public opinion, methods of display of those opinions, and the
+internal private preferences of one’s neighbors, family, and friends
+carries with it a level of uncertainty. How that individual uncertainty
+interacts with the environment and the state can describe in part the
+differences we see in resistance cascades across these varying regime
+types.
 
-$P_i$ is multiplied by $-1$ so that a negative *private preference* corresponds to a positive move up the probability of activation in the sigmoid $\sigma$ function. In isolation of other factors, very few agents have a low enough *private preference* to exceed the model's global threshold constant for activation. For any cascade to start though, there must be at least one agent with a low enough *private preference* that that in combination with their epsilon $\epsilon_i$ parameter that they are willing to change to the **Oppose** or **Active** state when the probability of arrest and expected cost are 0. The analog of this would be that at least one agent must be dissatisfied enough with the regime, uncertain enough about where "the red line" is in terms of acceptable behavior, and believes they will get away with whatever action they decide to take that they would be willing to engage in some form of resistance to alleviate their *preference falsification*.
+The Citizen agents *public preference* or visible state is a function of
+the above two exogenous variables. The Citizen agent can occupy one of
+the three states which is visible to other agents. The *private
+preference* of each agent is an assigned and unchanging value
+representing their unspoken privately held opinion on the regime in
+power, but each agent’s *public preference* is self determined in the
+sense that each individual agent decides their publicly viewable state
+by incorporating spatial information viewable by all agents, in
+combination with their internal non-public information. The three states
+or *public preferences* of Citizen agents are **Support**, **Oppose**,
+and **Active**. Citizen agents can inhabit a fourth state **Jailed**
+imposed on it by Security forces where they are removed from the board
+and await release.
 
-$$A_i = 1-e^{-2.3\frac{S}{A}2\sigma(\epsilon_i)}$$
+The exogenous factors within the model are the two above variables,
+*private preference* and *epsilon*, as well as *vision*, *Citizen
+Density*, *Security Density*, *threshold* *T*<sub>*C*</sub>, and
+*maximum jail term* *J*. *Vision* refers to each agents vision radius.
+Each agent has a set distance at which they can view other agents. While
+this can be understood as a literal representation of spatially local
+information restrictions, it also represents an abstraction of limited
+information. This variable can be adjusted separately for each class of
+agent, Citizen or Security, to represent more restrictions on Citizen
+agents’ information access while holding Security constant, but the
+model default is *vision* radius 7 for both agent classes.
 
-$A_i$ is the individual perception of the probability of arrest if **Active**. This function adapted from [Epstein's (2002) "Modeling Civil Violence"](http://www.pnas.org/content/99/suppl.3/7243.short) is designed so that an agent always counts themselves as **A**ctive. In a scenario where a Citizen sees no other **A**ctive agents in their vision, and see one **S**ecurity agent, the ratio $\frac{S}{A} = \frac{1}{1}$ and the constant $k = -2.3$ then computes to $A=0.9$ absent the interaction with error term *epsilon* $\epsilon_i$. The function has a maximum value of 1 and a minimum value of 0. The example given by Epstein is that of a person with a Molotov cocktail looking at a storefront. If that person is standing alone on the street looking at 9 **S**ecurity officers arrayed around the storefront, the person would calculate that throwing that Molotov cocktail would produce an extremely high likelihood of being arrested. If on the other hand, that person was standing in a crowd of 200 other rioters facing the same 9 **S**ecurity officers, then that person would reasonably calculate that throwing that Molotov cocktail would produce a much lower chance of being arrested. $A_i$ is an approximation of the safety of crowds, the smaller the ratio of **S**ecurity officers to **A**ctive Citizens, the lower the value of the probability of being arrested. In the Resistance Cascade model, this function is altered to account for uncertainty. A Citizen with epsilon 
+Decisions on whether to change state or *public preference* is based on
+the exogenous global variable *threshold* *T*<sub>*C*</sub>. Each
+agent’s individual *epsilon* *ϵ*<sub>*i*</sub> interacts with the global
+threshold value to set their own personal threshold for activation. The
+changes in standard deviation of *epsilon* correspond to the differing
+regime types, with more information-controlled societies having a lower
+*epsilon*, aka lower standard deviation in a Gaussian distribution,
+while lower information-controlled societies have a higher *epsilon*, or
+a higher standard deviation in a Gaussian distribution.
 
-$$\epsilon_i = 0 \quad \quad \sigma(\epsilon_i) = 0.5 \quad \quad 2 * \sigma(\epsilon_i) = 1$$
+*Citizen Density* and *Security Density* determines the number of
+Citizen and Security agents as a percentage of available space within
+the spatial grid. Using Epstein’s Civil Violence Model as a starting
+point for understanding the behavior of different agent densities, the
+*Citizen Density* was set at 0.7 and *Security Density* was allowed to
+fluctuate between 0.00 and 0.09. *Maximum Jail Term* *J* is the maximum
+integer value that a Security agent can impose on an active Citizen
+agent. This is applied stochastically during an arrest as a uniform
+distribution between 0 and *Maximum Jail Term*.
 
-has no error in calculating their probability of arrest, but those with more uncertainty over or underestimate their chances.
+The model works on a multilevel grid where multiple agents can occupy
+the same grid square simultaneously by default. Through the activation
+of a user parameter the model can operate on a single layer grid where
+each grid cell is limited to a single agent at a time. The grid itself
+either in single-layer or multi-layer is a torus where the top, bottom,
+and sides are connected. Agent vision and movement is able to jump from
+the bottom to the top, or from one side to another. The grid has a
+height of 40 squares, and a width of 40 squares for 1,600 total squares.
+This grid size also defines the agent count via the *Citizen Density*
+and *Security Density* variables expressed as a proportion of total
+squares on the grid. Agents move one square per step in their Moore
+neighborhood if any move is available. A Moore neighborhood includes all
+squares adjacent to a given square both orthogonally and diagonally, for
+a total of eight neighbors in a two-dimensional grid, excluding the
+square the agent inhabits. An agent’s spatial vision is defined as the
+radius of the exogenous *vision* variable in their Moore neighborhood.
+Thus, an agent with *vision* radius 7, the default value in the model,
+would be assessing (2\**v*+1)<sup>2</sup> = (2\*7+1)<sup>2</sup> = 225
+squares in their vicinity, some of which will contain a single agent,
+some multiple agents, and some no agents in the default multi-layer
+setup.
 
-$$J_i = J * \sigma(\epsilon_i)$$
-
-$J_i$ is the individual expected cost if arrested. In the model, jail terms $J$ are metered out by Security forces on **Active** and **Oppose** (where Opposed exceeds the global threshold constant) Citizens as a uniform distribution of 0 to the user defined maximum jail term where the default value in the model is 30 steps. In a uniform distribution, this means the average jail term is 15 steps. Those Citizens with a low error value *$\epsilon_i$* would correctly estimate that the cost of being arrested would be 15 steps or the sigmoid of zero epsilon *$\sigma(\epsilon = 0) = 0.5$*.
-
-$$R = \frac{A+O}{T}$$
-
-$R$ is the ratio of **Active** and **Opposed** Citizens to **Total** Citizens within a the Citizen agent's vision radius. The agent always counts themselves as **Active** and when interacted $L_i$, the Citizen's perception of that ratio, this produces the variable pair that can create resistance cascade events.
-
-$$L_i = \frac{log(A+O)}{\epsilon_i^2 + 0.05}$$
-
-$L_i$ is the encapsulation of a Citizen agent's uncertainty of the true *private preferences* of their neighbors. This interacts with their accurate view of the ratio of who in their vicinity is **Active** or **Opposed** to create their perception of regime support. The more information control in a society, the more accurately Citizens are able to understand where "the red line" falls, but the less able they are to understand the closely held true opinions of their neighbors. As epsilon $\epsilon_i$ in $L_i$ gets smaller, it exaggerates the effect of each **Active** Citizen in view. And while it may certainly feel this way sometimes, no person has infinite uncertainty, so a constant 0.05 is added in the denominator to tamper the effect of $\epsilon_i$ at extremely low values. This constant was an arbitrary value decided upon after multiple rounds of testing and comparing model outputs. **Active** and **Opposed** Citizens in view have a dampened effect via the log function. The first **Active** agent has a large effect on moving a Citizen's perception of local regime dissatisfaction but that effect decreases for each additional agent as each agent announcing a negative or anti-regime *public preference* has less informational effect.
+The model is split into two temporal stages for each agent’s decision
+and action phase using a simultaneous activation scheduler. The
+scheduler first loops through each agent in a random sequence where
+agents decide on their future state in a static environment. The
+scheduler then loops through the agents a second time in a random
+sequence who then activate their stored chosen state or *public
+preference* and then take their actions. With this temporal setup, all
+states of each individual agent in the step function are predetermined
+during the first loop in a static environment, and so state declarations
+by any agent are independent of the evolving state declarations of other
+agents in the action step.
 
 ## Further Reading
 

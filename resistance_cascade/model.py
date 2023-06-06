@@ -8,9 +8,21 @@ from .agent import Citizen, Security
 
 class ResistanceCascade(mesa.Model):
     """
-    Create ResistanceCascade model with the following parameters:
-
-    width: width of the grid
+    The model consists of two types of agent---Citizen agents which are the 
+    primary agents of question and are the subject of most macro-scale model 
+    measures, and Security agents. While this paper is mainly focused on the 
+    complex emergent cascade behaviors of Citizens, the interactions of Citizens 
+    and the state is core to understanding the processes. In multiple case 
+    studies of resistance movements, Security forces act as the primary foil of 
+    Citizens heavily influencing their choices of if, how, when, and where to 
+    activate publicly. Even in scenarios where a cascade has obviously begun, 
+    Security forces have significant ability to shape events.
+    """
+    ############################################################################
+    """
+    Parameter Explation
+    -------------------
+    width: width of the grid\n
     height: height of the grid
     citizen_vision: vision of the citizen agents [some integer]
     citizen_density: density of the citizen agents [float between 0 and 1]
@@ -21,7 +33,6 @@ class ResistanceCascade(mesa.Model):
     multiple_agents_per_cell: whether or not multiple agents can occupy the same cell [boolean]
     network: whether or not agents are connected in a network with fixed settings [boolean]
     network_discount: discount factor for network connections [float between 0 and 1]
-    international_context: unused parameter currently
     private_preference_distribution_mean: the mean or center point of a normal distribution for private preference
     standard_deviation: the standard deviation of a normal distribution for private preference
     epsilon: the operationalization of authoritarianism representing error rate of agent understanding of "red line" and repression consequences
@@ -29,6 +40,7 @@ class ResistanceCascade(mesa.Model):
     max_iters: maximum number of iterations to run the model
     seed: seed for random number generator
     random_seed: whether or not to use a random seed for the random number generator
+
     """
 
     def __init__(

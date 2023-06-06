@@ -102,11 +102,11 @@ model_params = dict(
     citizen_density=Slider("Initial Agent Density", 0.7, 0.0, 0.9, 0.1),
     # citizen_vision=Slider("Citizen Vision", 7, 1, 10, 1),
     # security_vision=Slider("Security Vision", 7, 1, 10, 1),
-    security_density=Slider("Security Density", 0.00, 0.0, 0.09, 0.01),
+    security_density=Slider("Security Density", 0.02, 0.0, 0.09, 0.01),
     # max_jail_term=Slider("Maximum Jail Term", 30, 1, 50, 5),
     threshold=Slider("Threshold", 3.66356, 0, 5, 0.1),
     private_preference_distribution_mean=Slider(
-        "Mean of Regime Preference", 0, -1, 1, 0.1
+        "Mean of Regime Preference", -0.7, -1, 1, 0.1
     ),
     epsilon=Slider("Epsilon", 1, 0, 1.5, 0.1),
     random_seed=Checkbox("Flip to Using Random Seeds", value=False),
