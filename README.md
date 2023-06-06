@@ -15,8 +15,10 @@ The Python code for the agent based model is in the 'resistance_cascade' folder.
 
 * ``model.py``: Core model.
 * ``server.py``: Sets up the interactive visualization.
-* ``agent.py``: Defines the base agent RandomWalker and the inheriting agents Citizen and Security.
+* ``agent.py``: Defines the agents Citizen and Security.
 * ``schedule.py``: Defines the base schedule SimultaneousActivationByType and the inheriting schedule with added functions.
+* ``batch_run_params.json``: Parameters for batch runs, edit this to change parameters for batch runs. The json is loaded in directly as a dictionary to create the grid search matrix.
+* ``random_walker.py`` : Defines the base RandomWalker class used by both Citizen and Security which contains the shared functions for movement.
 
 
 ## If Mamba or Conda Not Installed
