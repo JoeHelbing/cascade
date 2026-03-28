@@ -117,9 +117,20 @@ def block_sim_kernel(
     var gc_off = sid * GRID_SIZE  # grid_counts offset
     var gcl_off = sid * GRID_SIZE * MAX_PER_CELL  # grid_cells offset
 
+    # Use metrics[moff + 4] as revolution flag (global memory, visible to all threads)
+    var moff = sid * 6
+    if tid == 0:
+        metrics[moff + 4] = 0  # revolution flag = false
+
+    barrier()
+
     for step in range(n_steps):
+        # ---- Check revolution flag (ALL threads) ----
+        # If revolution already detected, skip work but still hit barriers
+        var rev = Int(metrics[moff + 4])
+
         # ---- Build spatial grid (thread 0, O(n_agents)) ----
-        if tid == 0:
+        if tid == 0 and rev == 0:
             for c_i in range(GRID_SIZE):
                 grid_counts[gc_off + c_i] = 0
             for j in range(n_agents):
@@ -133,107 +144,107 @@ def block_sim_kernel(
         barrier()
 
         # ---- Phase 1: Citizens scan neighbors via spatial grid (PARALLEL) ----
-        var i = tid
-        while i < n_citizens:
-            var ai = off + i
-            if jail_sent[ai] > 0 or cond[ai] == JAILED:
+        if rev == 0:
+            var i = tid
+            while i < n_citizens:
+                var ai = off + i
+                if jail_sent[ai] > 0 or cond[ai] == JAILED:
+                    i += BLOCK_SIZE
+                    continue
+
+                var ax = Int(pos_x[ai])
+                var ay = Int(pos_y[ai])
+                var actives: Int = 1
+                var opposed: Int = 0
+                var support_cnt: Int = 1
+                var security: Int = 0
+
+                # Scan only cells within vision distance (toroidal wrapping)
+                for dy_cell in range(-vision, vision + 1):
+                    var cy = (ay + dy_cell + GRID_H) % GRID_H
+                    for dx_cell in range(-vision, vision + 1):
+                        var cx = (ax + dx_cell + GRID_W) % GRID_W
+                        var cell = cy * GRID_W + cx
+                        var cnt = Int(grid_counts[gc_off + cell])
+                        for slot in range(cnt):
+                            var j = Int(grid_cells[gcl_off + cell * MAX_PER_CELL + slot])
+                            if j == i:
+                                continue
+                            var aj = off + j
+                            if is_citizen[aj] == 1:
+                                var c = cond[aj]
+                                if c == ACTIVE:
+                                    actives += 1
+                                elif c == OPPOSE:
+                                    opposed += 1
+                                elif c == SUPPORT:
+                                    support_cnt += 1
+                            else:
+                                security += 1
+
+                var ep = eps_arr[ai]
+                var ep_prob = eps_prob_arr[ai]
+                var active_ratio = Float32(actives + opposed) / Float32(support_cnt)
+                var perception = (Float32(actives) + Float32(opposed) * ep_prob) ** (1.0 / (ep * ep + 1.0))
+                var arrest_prob = 1.0 - exp(Float32(-2.3) * Float32(security) / Float32(actives) * 2.0 * ep_prob)
+                var opinion = -private_pref[ai] + perception * active_ratio
+
+                var rng_state = rng_arr[ai]
+                rng_state = lcg_next(rng_state)
+                var rand_act = lcg_float(rng_state)
+                rng_arr[ai] = rng_state
+
+                activation_val[ai] = sigmoid_f32(opinion)
+                var active_level = sigmoid_f32(opinion - active_th[ai]) - arrest_prob
+                var oppose_level = sigmoid_f32(opinion - oppose_th[ai]) - arrest_prob
+
+                if active_level > rand_act:
+                    next_cond[ai] = ACTIVE
+                elif oppose_level > rand_act:
+                    next_cond[ai] = OPPOSE
+                else:
+                    next_cond[ai] = SUPPORT
+
                 i += BLOCK_SIZE
-                continue
-
-            var ax = Int(pos_x[ai])
-            var ay = Int(pos_y[ai])
-            var actives: Int = 1
-            var opposed: Int = 0
-            var support_cnt: Int = 1
-            var security: Int = 0
-
-            # Scan only cells within vision distance (toroidal wrapping)
-            for dy_cell in range(-vision, vision + 1):
-                var cy = (ay + dy_cell + GRID_H) % GRID_H
-                for dx_cell in range(-vision, vision + 1):
-                    var cx = (ax + dx_cell + GRID_W) % GRID_W
-                    var cell = cy * GRID_W + cx
-                    var cnt = Int(grid_counts[gc_off + cell])
-                    for slot in range(cnt):
-                        var j = Int(grid_cells[gcl_off + cell * MAX_PER_CELL + slot])
-                        if j == i:
-                            continue
-                        # Agent j is in this cell, so it's within vision
-                        # (cell-level check is sufficient for Chebyshev distance)
-                        var aj = off + j
-                        if is_citizen[aj] == 1:
-                            var c = cond[aj]
-                            if c == ACTIVE:
-                                actives += 1
-                            elif c == OPPOSE:
-                                opposed += 1
-                            elif c == SUPPORT:
-                                support_cnt += 1
-                        else:
-                            security += 1
-
-            var ep = eps_arr[ai]
-            var ep_prob = eps_prob_arr[ai]
-            var active_ratio = Float32(actives + opposed) / Float32(support_cnt)
-            var perception = (Float32(actives) + Float32(opposed) * ep_prob) ** (1.0 / (ep * ep + 1.0))
-            var arrest_prob = 1.0 - exp(Float32(-2.3) * Float32(security) / Float32(actives) * 2.0 * ep_prob)
-            var opinion = -private_pref[ai] + perception * active_ratio
-
-            var rng_state = rng_arr[ai]
-            rng_state = lcg_next(rng_state)
-            var rand_act = lcg_float(rng_state)
-            rng_arr[ai] = rng_state
-
-            activation_val[ai] = sigmoid_f32(opinion)
-            var active_level = sigmoid_f32(opinion - active_th[ai]) - arrest_prob
-            var oppose_level = sigmoid_f32(opinion - oppose_th[ai]) - arrest_prob
-
-            if active_level > rand_act:
-                next_cond[ai] = ACTIVE
-            elif oppose_level > rand_act:
-                next_cond[ai] = OPPOSE
-            else:
-                next_cond[ai] = SUPPORT
-
-            i += BLOCK_SIZE
 
         barrier()
 
         # ---- Phase 2: Advance citizens (PARALLEL) ----
-        i = tid
-        while i < n_citizens:
-            var ai = off + i
-            if jail_sent[ai] > 0:
-                jail_sent[ai] -= 1
-                i += BLOCK_SIZE
-                continue
-            elif cond[ai] == JAILED:
-                cond[ai] = SUPPORT
+        if rev == 0:
+            var i = tid
+            while i < n_citizens:
+                var ai = off + i
+                if jail_sent[ai] > 0:
+                    jail_sent[ai] -= 1
+                    i += BLOCK_SIZE
+                    continue
+                elif cond[ai] == JAILED:
+                    cond[ai] = SUPPORT
+                    var rng_state = rng_arr[ai]
+                    rng_state = lcg_next(rng_state)
+                    pos_x[ai] = Int32(lcg_int(rng_state, GRID_W))
+                    rng_state = lcg_next(rng_state)
+                    pos_y[ai] = Int32(lcg_int(rng_state, GRID_H))
+                    rng_arr[ai] = rng_state
+
+                cond[ai] = next_cond[ai]
+                # Move randomly
                 var rng_state = rng_arr[ai]
                 rng_state = lcg_next(rng_state)
-                pos_x[ai] = Int32(lcg_int(rng_state, GRID_W))
-                rng_state = lcg_next(rng_state)
-                pos_y[ai] = Int32(lcg_int(rng_state, GRID_H))
+                var choice = lcg_int(rng_state, 9)
+                var dx2 = choice // 3 - 1
+                var dy2 = choice % 3 - 1
+                pos_x[ai] = Int32((Int(pos_x[ai]) + dx2 + GRID_W) % GRID_W)
+                pos_y[ai] = Int32((Int(pos_y[ai]) + dy2 + GRID_H) % GRID_H)
                 rng_arr[ai] = rng_state
 
-            cond[ai] = next_cond[ai]
-            # Move randomly
-            var rng_state = rng_arr[ai]
-            rng_state = lcg_next(rng_state)
-            var choice = lcg_int(rng_state, 9)
-            var dx2 = choice // 3 - 1
-            var dy2 = choice % 3 - 1
-            pos_x[ai] = Int32((Int(pos_x[ai]) + dx2 + GRID_W) % GRID_W)
-            pos_y[ai] = Int32((Int(pos_y[ai]) + dy2 + GRID_H) % GRID_H)
-            rng_arr[ai] = rng_state
-
-            i += BLOCK_SIZE
+                i += BLOCK_SIZE
 
         barrier()
 
         # ---- Phase 3: Security arrest and move (thread 0 only) ----
         # Sequential to avoid race conditions on arrest targets
-        if tid == 0:
+        if tid == 0 and rev == 0:
             for s in range(n_citizens, n_agents):
                 var ai = off + s
                 var sx = Int(pos_x[ai])
@@ -276,11 +287,21 @@ def block_sim_kernel(
                 pos_y[ai] = Int32((Int(pos_y[ai]) + dy3 + GRID_H) % GRID_H)
                 rng_arr[ai] = rng_state2
 
+            # ---- Revolution check (thread 0, after all phases) ----
+            # Matches original Python model: stop if active+jailed >= 95% of citizens
+            var active_or_jailed: Int = 0
+            for c_i in range(n_citizens):
+                var c = cond[off + c_i]
+                if c == ACTIVE or c == JAILED:
+                    active_or_jailed += 1
+            if Float32(active_or_jailed) / Float32(n_citizens) >= 0.95:
+                metrics[moff + 4] = 1  # revolution = True, visible to all threads next iter
+
         barrier()
 
     # ---- Count final metrics (thread 0) ----
+    # metrics[moff + 4] (revolution flag) already set during step loop
     if tid == 0:
-        var moff = sid * 6
         var active_count: Int32 = 0
         var support_count: Int32 = 0
         var oppose_count: Int32 = 0
@@ -300,11 +321,7 @@ def block_sim_kernel(
         metrics[moff + 1] = support_count
         metrics[moff + 2] = oppose_count
         metrics[moff + 3] = jail_count
-        var tot = active_count + jail_count
-        if Float32(tot) / Float32(n_citizens) >= 0.95:
-            metrics[moff + 4] = 1
-        else:
-            metrics[moff + 4] = 0
+        # moff + 4 already set by revolution check in step loop
         metrics[moff + 5] = Int32(n_citizens)
 
 
@@ -332,7 +349,7 @@ def main() raises:
     seeds.append(789)
     seeds.append(1001)
     if benchmark_mode:
-        for s in range(905):
+        for s in range(223):
             seeds.append(2000 + s)
 
     var epsilons = List[Float32]()

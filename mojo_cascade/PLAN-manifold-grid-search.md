@@ -110,13 +110,16 @@ manifold runtimes.
 
 ### Step 3: Run the simulation
 
-**Estimated timing** (at 81 sims/sec sustained):
+**Estimated timing** (at 468 sims/sec with block-per-sim kernel):
 
 | Configuration | Sims | Time | GPU Hours |
 |---------------|------|------|-----------|
-| 6 base manifolds (51x51x20) | 312,120 | 64 min | 1.1 hr |
-| + 2 zoom manifolds (101x101x20) | 720,160 | 148 min | 2.5 hr |
-| Full resolution (99x99x20, all 6) | 1,176,120 | 242 min | 4.0 hr |
+| 6 base manifolds (51x51x20) | 312,120 | 11 min | 0.2 hr |
+| + 2 zoom manifolds (101x101x20) | 720,160 | 26 min | 0.4 hr |
+| Full resolution (99x99x20, all 6) | 1,176,120 | 42 min | 0.7 hr |
+
+NOTE: Previous estimates used 81 sims/sec (one-thread-per-sim). The
+block-per-sim kernel with spatial grid achieves 468 sims/sec (5.8x faster).
 
 **Recommendation:** Start with the 6 base manifolds at 51x51 resolution
 (~1 hour). If the surfaces look good but need more resolution in the phase
@@ -185,7 +188,7 @@ mojo_cascade/
 When ready to run, point Claude Code at this plan and say "execute this plan."
 
 - [ ] Create `manifold_search_gpu.mojo` with all manifold configurations
-- [ ] Build: `cd mojo_cascade && pixi run mojo build manifold_search_gpu.mojo -o manifold_search_gpu`
+- [ ] Build: `cd mojo_cascade && pixi run mojo build manifold_search_gpu.mojo -o manifold_search_gpu` (base on block_per_sim.mojo kernel for 5.8x throughput)
 - [ ] Create output directory: `mkdir -p manifold_results`
 - [ ] Run: `./manifold_search_gpu` (writes CSVs to manifold_results/)
 - [ ] Create `visualize_manifolds.py` with Plotly 3D surface generation
