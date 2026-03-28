@@ -1,57 +1,57 @@
-from typing import Type, Callable
-
-from mesa.agent import Agent
-from mesa.model import Model
+"""Lightweight two-phase simultaneous activation scheduler replacing mesa.time."""
 
 from collections import defaultdict
 
 
-import mesa
-
-class SimultaneousActivationByTypeFiltered(mesa.time.SimultaneousActivation):
+class SimultaneousActivationByTypeFiltered:
     """
-    A scheduler that overrides the get_type_count method to allow for filtering
-    of agents by a function before counting.
-
-    Example:
-    >>> scheduler = SimultaneousActivationByTypeFiltered(model)
-    >>> scheduler.get_type_count(AgentA, lambda agent: agent.some_attribute > 10)
+    A scheduler that executes agents in two phases (step + advance)
+    and tracks agents by type. Drop-in replacement for the mesa-based version.
     """
-    def __init__(self, model: Model) -> None:
-        super().__init__(model)
+
+    def __init__(self, model):
+        self.model = model
+        self._agents = {}
         self.agents_by_type = defaultdict(dict)
+        self._steps = 0
 
-    def add(self, agent: Agent) -> None:
-        """
-        Add an Agent object to the schedule
+    @property
+    def agents(self):
+        return list(self._agents.values())
 
-        Args:
-            agent: An Agent to be added to the schedule.
-        """
-
-        super().add(agent)
-        agent_class: type[Agent] = type(agent)
+    def add(self, agent):
+        """Add an agent to the schedule."""
+        self._agents[agent.unique_id] = agent
+        agent_class = type(agent)
         self.agents_by_type[agent_class][agent.unique_id] = agent
 
-    def remove(self, agent: Agent) -> None:
-        """
-        Remove all instances of a given agent from the schedule.
-        """
-
+    def remove(self, agent):
+        """Remove an agent from the schedule."""
         del self._agents[agent.unique_id]
-
-        agent_class: type[Agent] = type(agent)
+        agent_class = type(agent)
         del self.agents_by_type[agent_class][agent.unique_id]
 
+    def step(self):
+        """Execute one full step: all agents step(), then all agents advance().
 
-    def get_type_count(
-        self,
-        type_class: Type[mesa.Agent],
-        filter_func: Callable[[mesa.Agent], bool] = None,
-    ) -> int:
+        Matches mesa.time.SimultaneousActivation: iterates in insertion order,
+        no shuffling. Keys are re-fetched between phases to handle agents
+        added/removed during stepping.
         """
-        Returns the current number of agents of certain type in the queue that satisfy the filter function.
-        """
+        # Phase 1: Decision
+        agent_keys = list(self._agents.keys())
+        for key in agent_keys:
+            self._agents[key].step()
+
+        # Phase 2: Action (recompute keys in case agents were removed)
+        agent_keys = list(self._agents.keys())
+        for key in agent_keys:
+            self._agents[key].advance()
+
+        self._steps += 1
+
+    def get_type_count(self, type_class, filter_func=None):
+        """Count agents of a given type, optionally filtered."""
         count = 0
         for agent in self.agents_by_type[type_class].values():
             if filter_func is None or filter_func(agent):

@@ -1,46 +1,67 @@
-import mesa
 import math
 import logging as log
-import numpy as np
-from resistance_cascade.scheduler import SimultaneousActivationByTypeFiltered
+import random
+from .scheduler import SimultaneousActivationByTypeFiltered
+from .grid import MultiGrid
 from .agent import Citizen, Security
 
 
-class ResistanceCascade(mesa.Model):
-    """
-    The model consists of two types of agent---Citizen agents which are the 
-    primary agents of question and are the subject of most macro-scale model 
-    measures, and Security agents. While this paper is mainly focused on the 
-    complex emergent cascade behaviors of Citizens, the interactions of Citizens 
-    and the state is core to understanding the processes. In multiple case 
-    studies of resistance movements, Security forces act as the primary foil of 
-    Citizens heavily influencing their choices of if, how, when, and where to 
-    activate publicly. Even in scenarios where a cascade has obviously begun, 
-    Security forces have significant ability to shape events.
-    """
-    ############################################################################
-    """
-    Parameter Explation
-    -------------------
-    width: width of the grid\n
-    height: height of the grid
-    citizen_vision: vision of the citizen agents [some integer]
-    citizen_density: density of the citizen agents [float between 0 and 1]
-    security_density: density of the security agents [float between 0 and 1]
-    security_vision: vision of the security agents [some integer]
-    max_jail_term: maximum jail term for security agents [some integer]
-    movement: whether or not agents can move [boolean]
-    multiple_agents_per_cell: whether or not multiple agents can occupy the same cell [boolean]
-    network: whether or not agents are connected in a network with fixed settings [boolean]
-    network_discount: discount factor for network connections [float between 0 and 1]
-    private_preference_distribution_mean: the mean or center point of a normal distribution for private preference
-    standard_deviation: the standard deviation of a normal distribution for private preference
-    epsilon: the operationalization of authoritarianism representing error rate of agent understanding of "red line" and repression consequences
-    threshold: Global base value for threshold for resistance cascade
-    max_iters: maximum number of iterations to run the model
-    seed: seed for random number generator
-    random_seed: whether or not to use a random seed for the random number generator
+class DataCollector:
+    """Lightweight data collector replacing mesa.DataCollector."""
 
+    def __init__(self, model_reporters=None, agent_reporters=None):
+        self.model_reporters = model_reporters or {}
+        self.agent_reporters = agent_reporters or {}
+        self.model_data = {name: [] for name in self.model_reporters}
+        self.agent_data = {name: [] for name in self.agent_reporters}
+
+        # Pre-classify reporters for fast dispatch
+        self._callable_reporters = []
+        self._attr_reporters = []
+        for name, reporter in self.agent_reporters.items():
+            if callable(reporter):
+                self._callable_reporters.append((name, reporter))
+            else:
+                self._attr_reporters.append((name, reporter))
+
+    def collect(self, model):
+        for name, reporter in self.model_reporters.items():
+            self.model_data[name].append(reporter(model))
+
+        agents = model.schedule.agents
+        for name, reporter in self._callable_reporters:
+            self.agent_data[name].append(
+                {a.unique_id: reporter(a) for a in agents}
+            )
+        for name, attr in self._attr_reporters:
+            self.agent_data[name].append(
+                {a.unique_id: getattr(a, attr, None) for a in agents}
+            )
+
+    def get_model_dataframe(self):
+        import pandas as pd
+        return pd.DataFrame(self.model_data)
+
+    def get_agent_dataframe(self):
+        import pandas as pd
+        frames = []
+        for step_idx in range(len(next(iter(self.agent_data.values())))):
+            step_data = {}
+            for name in self.agent_reporters:
+                step_data[name] = self.agent_data[name][step_idx]
+            df = pd.DataFrame(step_data)
+            df["Step"] = step_idx
+            frames.append(df)
+        if frames:
+            return pd.concat(frames, ignore_index=True)
+        return pd.DataFrame()
+
+
+class ResistanceCascade:
+    """
+    The resistance cascade model. Citizens decide whether to support, oppose,
+    or actively resist the regime based on their neighbors' behavior,
+    private preferences, and fear of arrest by Security forces.
     """
 
     def __init__(
@@ -58,25 +79,24 @@ class ResistanceCascade(mesa.Model):
         standard_deviation=1,
         epsilon=0.5,
         max_iters=1000,
-        threshold = 3.66356,
+        threshold=3.66356,
         seed=None,
         random_seed=False,
     ):
-        super().__init__()
+        # Set up reproducible RNG matching mesa's behavior
         if random_seed:
-            self.reset_randomizer(np.random.randint(0, 1000000))
-        else:
-            self.reset_randomizer(seed)
+            seed = random.randint(0, 1000000)
+        self._seed = seed
+        self.random = random.Random(seed)
+
         print(f"Running ResistanceCascade with seed {self._seed}")
         log.info(f"Running ResistanceCascade with seed {self._seed}")
+
         self.width = width
         self.height = height
-
-        # model boolean constants
         self.movement = movement
         self.multiple_agents_per_cell = multiple_agents_per_cell
 
-        # agent level constants
         self.citizen_density = citizen_density
         self.citizen_vision = citizen_vision
         self.private_preference_distribution_mean = private_preference_distribution_mean
@@ -87,34 +107,24 @@ class ResistanceCascade(mesa.Model):
         self.security_density = security_density
         self.security_vision = security_vision
 
-        # model level constants
         self.max_jail_term = max_jail_term
         self.citizen_count = round(self.width * self.height * self.citizen_density)
         self.security_count = round(self.width * self.height * self.security_density)
 
-        # model setup
-        self.max_iters = max_iters
-
-        # model setup
         self.max_iters = max_iters
         self.iteration = 0
         self.random_seed = random_seed
-        self.schedule = SimultaneousActivationByTypeFiltered(self)
-        self.grid = mesa.space.MultiGrid(self.width, self.height, torus=True)
+        self._next_id_counter = 0
 
-        # agent counts
+        self.schedule = SimultaneousActivationByTypeFiltered(self)
+        self.grid = MultiGrid(self.width, self.height, torus=True)
+
         self.support_count = 0
         self.active_count = 0
         self.oppose_count = 0
-
-        # viva la revolucion
         self.revolution = False
 
-        ########################################################################
-        ########################################################################
-        """
-        Section for creating agents at initialization within the model
-        """
+        # Create citizens
         for i in range(self.citizen_count):
             pos = None
             if not self.multiple_agents_per_cell and len(self.grid.empties) > 0:
@@ -123,20 +133,16 @@ class ResistanceCascade(mesa.Model):
                 x = self.random.randrange(self.width)
                 y = self.random.randrange(self.height)
                 pos = (x, y)
-            # normal distribution of private regime preference
+
             private_preference = self.random.gauss(
                 self.private_preference_distribution_mean, self.standard_deviation
             )
-            # error term for information controlled society
             epsilon = self.random.gauss(0, self.epsilon)
-            # epsilon error term sigmoid value
             epsilon_probability = self.sigmoid(epsilon)
-            # threshold calculations
             thresholds = [self.random.gauss(self.threshold, epsilon) for _ in range(0, 2)]
-            # threshold for opposition
             oppose_threshold = min(thresholds)
-            # threshold for activation
             active_threshold = max(thresholds)
+
             citizen = Citizen(
                 self.next_id(),
                 self,
@@ -151,7 +157,7 @@ class ResistanceCascade(mesa.Model):
             self.grid.place_agent(citizen, pos)
             self.schedule.add(citizen)
 
-        # create Security
+        # Create security
         for i in range(self.security_count):
             pos = None
             if not self.multiple_agents_per_cell and len(self.grid.empties) > 0:
@@ -161,7 +167,6 @@ class ResistanceCascade(mesa.Model):
                 y = self.random.randrange(self.height)
                 pos = (x, y)
 
-            # normal distribution of private regime preference
             private_preference = self.random.gauss(
                 self.private_preference_distribution_mean, self.standard_deviation
             )
@@ -176,11 +181,7 @@ class ResistanceCascade(mesa.Model):
             self.grid.place_agent(security, pos)
             self.schedule.add(security)
 
-        ########################################################################
-        ########################################################################
-        """
-        Section for creating data collectors for the model
-        """
+        # Data collectors
         model_reporters = {
             "Seed": self.report_seed,
             "Citizen Count": self.count_citizen,
@@ -220,196 +221,118 @@ class ResistanceCascade(mesa.Model):
             "model_private_preference": lambda a: getattr(a, "dc_private_preference", None),
             "model_epsilon": lambda a: getattr(a, "dc_epsilon", None),
             "model_threshold": lambda a: getattr(a, "dc_threshold", None),
-            }
-        self.datacollector = mesa.DataCollector(
+        }
+        self.datacollector = DataCollector(
             model_reporters=model_reporters, agent_reporters=agent_reporters
         )
 
-        ########################################################################
-        ########################################################################
-        """
-        Final section for setting agents into inital state for datacollector,
-        collecting step 0 data, and starting model running
-        """
-
-        # set citizen states prior to first step
+        # Set citizen states prior to first step
         for agent in self.schedule.agents_by_type[Citizen].values():
-            agent.neighborhood = agent.update_neighbors()
+            # Run the combined neighbor update + count + decide logic
+            agent.update_neighbors()
+            agent.count_neigbhors()
             agent.determine_condition()
 
-        # The final step is to set the model running
         self.running = True
         self.datacollector.collect(self)
 
+    def next_id(self):
+        """Generate the next unique agent ID."""
+        self._next_id_counter += 1
+        return self._next_id_counter
+
     def step(self):
-        """
-        Advance the model by one step and collect data.
-        """
+        """Advance the model by one step and collect data."""
         self.schedule.step()
 
-        # if over .95 of agents are active or in jail, stop the model
-        active_or_jailed_agents = sum(1 for agent in self.schedule.agents if type(agent) is Citizen and (agent.condition == "Active" or agent.condition == "Jailed"))
+        active_or_jailed_agents = sum(
+            1 for agent in self.schedule.agents
+            if type(agent) is Citizen and (agent.condition == "Active" or agent.condition == "Jailed")
+        )
         proportion_active_or_jailed = active_or_jailed_agents / self.citizen_count
 
-        # check stop condition
         if proportion_active_or_jailed >= 0.95:
             log.debug(f"Stop conditiom met at iteration {self.iteration}, Viva la Revolucion!")
             print(f"Stop conditiom met at iteration {self.iteration}, Viva la Revolucion!")
             self.revolution = True
             self.running = False
 
-        # collect data
         self.datacollector.collect(self)
 
-        # update agent counts
         self.active_count = self.count_active(self)
         self.support_count = self.count_support(self)
         self.oppose_count = self.count_oppose(self)
 
-        # update iteration
         self.iteration += 1
         if self.iteration > self.max_iters:
             self.running = False
 
-    ############################################################################
-    ############################################################################
-    """
-    Section for model level helper methods used in ititialization and step.
-    """
-
-    def distance_calculation(self, agent1, agent2):
-        """
-        Helper method to calculate distance between two agents.
-        """
-        return math.sqrt(
-            (agent1.pos[0] - agent2.pos[0]) ** 2 + (agent1.pos[1] - agent2.pos[1]) ** 2
-        )
-
     def sigmoid(self, x):
-        """
-        Sigmoid function
-        """
+        """Sigmoid function."""
         return 1 / (1 + math.exp(-x))
-
-    ############################################################################
-    ############################################################################
-    """
-    Section for helper methods used in data collection.
-    """
 
     @staticmethod
     def report_seed(model):
-        """
-        Helper method to report the seed.
-        """
         return model._seed
 
     @staticmethod
     def count_citizen(model):
-        """
-        Helper method to report the citizen count.
-        """
         return model.citizen_count
 
     @staticmethod
     def speed_of_spread(model):
-        """
-        Calculates the speed of transmission of the rebellion.
-        """
         return (
-            len(
-                [
-                    agent
-                    for agent in model.schedule.agents_by_type[Citizen].values()
-                    if agent.flip is True
-                ]
-            )
+            len([
+                agent for agent in model.schedule.agents_by_type[Citizen].values()
+                if agent.flip is True
+            ])
             / model.citizen_count
         )
 
     @staticmethod
     def count_active(model):
-        """
-        Helper method to count active agents.
-        """
-        return len(
-            [
-                agent
-                for agent in model.schedule.agents_by_type[Citizen].values()
-                if agent.condition == "Active"
-            ]
-        )
+        return len([
+            agent for agent in model.schedule.agents_by_type[Citizen].values()
+            if agent.condition == "Active"
+        ])
+
     @staticmethod
     def count_oppose(model):
-        """
-        Helper method to count publicly opposing agents.
-        """
-        return len(
-            [
-                agent
-                for agent in model.schedule.agents_by_type[Citizen].values()
-                if agent.condition == "Oppose"
-            ]
-        )
-    
+        return len([
+            agent for agent in model.schedule.agents_by_type[Citizen].values()
+            if agent.condition == "Oppose"
+        ])
+
     @staticmethod
     def count_support(model):
-        """
-        Helper method to count publicly supporting agents.
-        """
-        return len(
-            [
-                agent
-                for agent in model.schedule.agents_by_type[Citizen].values()
-                if agent.condition == "Support"
-            ]
-        )
+        return len([
+            agent for agent in model.schedule.agents_by_type[Citizen].values()
+            if agent.condition == "Support"
+        ])
 
     @staticmethod
     def count_jail(model):
-        """
-        Helper method to count jailed agents.
-        """
-        return len(
-            [
-                agent
-                for agent in model.schedule.agents_by_type[Citizen].values()
-                if agent.condition == "Jailed"
-            ]
-        )
-    
+        return len([
+            agent for agent in model.schedule.agents_by_type[Citizen].values()
+            if agent.condition == "Jailed"
+        ])
+
     @staticmethod
     def report_security_density(model):
-        """
-        Helper method to count security density.
-        """
         return model.security_density
-    
+
     @staticmethod
     def report_private_preference(model):
-        """
-        Helper method to count private preference distribution mean.
-        """
         return model.private_preference_distribution_mean
-    
+
     @staticmethod
     def report_epsilon(model):
-        """
-        Helper method to count epsilon.
-        """
         return model.epsilon
-    
+
     @staticmethod
     def report_threshold(model):
-        """
-        Helper method to count threshold.
-        """
         return model.threshold
-    
+
     @staticmethod
     def report_revolution(model):
-        """
-        Helper method to count revolutions.
-        """
         return model.revolution
-    

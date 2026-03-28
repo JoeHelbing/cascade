@@ -1,16 +1,15 @@
-import mesa
 import math
-import logging as log
-import numpy as np
 from .random_walker import RandomWalker
 
 
 class Citizen(RandomWalker):
     """
-    Citizen agent class that inherits from RandomWalker class. This class
-    looks at it's neighbors and decides whether to activate or not based on
-    number of active neighbors and it's own activation level.
+    Citizen agent that looks at neighbors and decides whether to activate
+    based on number of active neighbors and its own activation level.
     """
+
+    _is_citizen = True
+    _is_security = False
 
     def __init__(
         self,
@@ -24,11 +23,6 @@ class Citizen(RandomWalker):
         oppose_threshold,
         active_threshold,
     ):
-        """
-        Attributes and methods inherited from RandomWalker class:
-        grid, x, y, moore, update_neighbors, random_move, determine_avg_loc,
-        move_towards, sigmoid, logit, distance
-        """
         super().__init__(unique_id, model, pos)
         self.vision = vision
 
@@ -60,26 +54,57 @@ class Citizen(RandomWalker):
         # agent jail attributes
         self.jail_sentence = 0
 
+    # Alias for typo compatibility with original code
+    @property
+    def opposes_in_vision(self):
+        return self.opposed_in_vision
+
     def step(self):
-        """
-        Decide whether to activate, then move if applicable.
-        """
-        # Set flip to False
+        """Decide whether to activate, then move if applicable."""
         self.flip = False
 
         if self.jail_sentence > 0 or self.condition == "Jailed":
             return
 
-        # update neighborhood
-        self.neighborhood = self.update_neighbors()
-        # based on neighborhood determine if support, oppose, or active
+        # Combined neighbor update + count in one grid pass
+        grid = self.model.grid
+        neighborhood = grid.get_neighborhood(self.pos, moore=True, radius=self.vision)
+        grid_data = grid._grid
+
+        actives = 1
+        opposed = 0
+        support = 1
+        security = 0
+        neighbors = []
+        extend = neighbors.extend
+
+        for x, y in neighborhood:
+            cell = grid_data[x][y]
+            if cell:
+                extend(cell)
+
+        for n in neighbors:
+            if n._is_citizen:
+                cond = n.condition
+                if cond == "Active":
+                    actives += 1
+                elif cond == "Oppose":
+                    opposed += 1
+                elif cond == "Support":
+                    support += 1
+            else:
+                security += 1
+
+        self.neighbors = neighbors
+        self.actives_in_vision = actives
+        self.opposed_in_vision = opposed
+        self.support_in_vision = support
+        self.security_in_vision = security
+
         self.determine_condition()
 
     def advance(self):
-        """
-        Advance the citizen to the next step of the model.
-        """
-        # jail sentence
+        """Advance the citizen to the next step of the model."""
         if self.jail_sentence > 0:
             self.jail_sentence -= 1
             return
@@ -88,42 +113,33 @@ class Citizen(RandomWalker):
             self.model.grid.place_agent(self, self.pos)
             self.condition = "Support"
 
-        # update condition
         self.condition = self._update_condition
-
-        # random movement
         self.random_move()
 
     def count_neigbhors(self):
-        """
-        Count the number of neighbors of each type
-        """
-        # Initialize count variables
+        """Count the number of neighbors of each type."""
         self.actives_in_vision = 1
         self.opposed_in_vision = 0
         self.support_in_vision = 1
         self.security_in_vision = 0
 
-        # Loop through neighbors and count agent types
-        for active in self.neighbors:
-            if isinstance(active, Citizen):
-                if active.condition == "Active":
+        for neighbor in self.neighbors:
+            if neighbor._is_citizen:
+                cond = neighbor.condition
+                if cond == "Active":
                     self.actives_in_vision += 1
-                elif active.condition == "Oppose":
+                elif cond == "Oppose":
                     self.opposed_in_vision += 1
-                elif active.condition == "Support":
+                elif cond == "Support":
                     self.support_in_vision += 1
-            elif isinstance(active, Security):
+            else:
                 self.security_in_vision += 1
 
     def determine_condition(self):
         """
-        activation function that determines whether citizen will support
-        or activate.
+        Activation function that determines whether citizen will support
+        or activate. Neighbor counts are pre-computed in step().
         """
-        # return count of neighbor types
-        self.count_neigbhors()
-
         # ratio of active and oppose to citizens in vision
         self.active_ratio = (
             self.actives_in_vision + self.opposed_in_vision
@@ -135,38 +151,30 @@ class Citizen(RandomWalker):
         ) ** ((self.epsilon**2 + 1) ** -1)
 
         # Probability of arrest P
-        self.arrest_prob = 1 - np.exp(
-            # constant that produces 0.9 at 1 active (self) and 1 security
+        self.arrest_prob = 1 - math.exp(
             -2.3
-            # ratio of securtiy to actives where self is active always
             * (self.security_in_vision / (self.actives_in_vision))
-            # 0 epsilon, ie no error is 0.5 sigmoid probability output
-            # where 2 * epsilon is 1.0, aka 1 * probability, aka perfect estimation
             * (2 * self.epsilon_probability)
         )
 
         # Calculate opinion and determine condition
         self.opinion = (
-            # flip private preference so negative regime opinion makes citizen
-            # more likely to activate
             (-1 * self.private_preference)
-            # perception as a function of the inverse of epsilon squared interacted
-            # with the number of actives and opposed in vision
             + (self.perception * self.active_ratio)
-            # agents expectation of arrest probability as a function of epsilon
-            # interacted with expected cost of arrest interacted with epsilon
         )
 
         # uniform random activation 0.0 - 1.0
-        random_activation = self.model.random.uniform(0.0, 1.0)
+        random_activation = self.model.random.random()
 
-        # calculate activation levels
-        self.activation = self.model.sigmoid(self.opinion)
+        # calculate activation levels — inline sigmoid for speed
+        opinion = self.opinion
+        arrest_prob = self.arrest_prob
+        self.activation = 1.0 / (1.0 + math.exp(-opinion))
         self.active_level = (
-            self.model.sigmoid(self.opinion - self.active_threshold) - self.arrest_prob
+            1.0 / (1.0 + math.exp(-(opinion - self.active_threshold))) - arrest_prob
         )
         self.oppose_level = (
-            self.model.sigmoid(self.opinion - self.oppose_threshold) - self.arrest_prob
+            1.0 / (1.0 + math.exp(-(opinion - self.oppose_threshold))) - arrest_prob
         )
 
         # assign condition by activation level
@@ -183,13 +191,11 @@ class Citizen(RandomWalker):
 
 class Security(RandomWalker):
     """
-    Security agent class that inherits from RandomWalker class. This class
-    looks at it's neighbors and arrests active neighbor
-
-    Attributes and methods inherited from RandomWalker class:
-    grid, x, y, moore, update_neighbors, random_move, determine_avg_loc,
-    move_towards, sigmoid, logit, distance
+    Security agent that arrests active neighbors.
     """
+
+    _is_citizen = False
+    _is_security = True
 
     def __init__(self, unique_id, model, pos, vision, private_preference):
         super().__init__(unique_id, model, pos)
@@ -201,7 +207,7 @@ class Security(RandomWalker):
         self._new_identity = None
         self.private_preference = private_preference
 
-        # attributes for batch_run and data collection to avoid errors
+        # attributes for data collection compatibility
         self.opinion = None
         self.activation = None
         self.risk_aversion = None
@@ -221,40 +227,36 @@ class Security(RandomWalker):
         self.active_level = None
         self.oppose_level = None
 
+    # Alias for typo compatibility
+    @property
+    def opposes_in_vision(self):
+        return self.opposed_in_vision
+
     def step(self):
-        """
-        Steps for security class to determine behavior
-        """
+        """Steps for security class to determine behavior."""
         pass
 
     def advance(self):
-        """
-        Advance for security class to determine behavior
-        """
-        self.update_neighbors()
+        """Advance for security class to determine behavior."""
         self.arrest()
         self.random_move()
 
     def arrest(self):
-        """
-        Arrests active neighbor
-        """
+        """Arrests active neighbor."""
         neighbor_cells = self.model.grid.get_neighborhood(self.pos, moore=True)
 
-        # collect arrestable neighbors
         active_neighbors = []
         oppose_neighbors = []
+        threshold_sig = self.model.threshold_constant_sigmoid
         for neighbor in self.model.grid.get_cell_list_contents(neighbor_cells):
-            if isinstance(neighbor, Citizen) and neighbor.condition == "Active":
+            if not neighbor._is_citizen:
+                continue
+            cond = neighbor.condition
+            if cond == "Active":
                 active_neighbors.append(neighbor)
-            elif (
-                isinstance(neighbor, Citizen)
-                and neighbor.condition == "Oppose"
-                and neighbor.activation > self.model.threshold_constant_sigmoid
-            ):
+            elif cond == "Oppose" and neighbor.activation is not None and neighbor.activation > threshold_sig:
                 oppose_neighbors.append(neighbor)
 
-        # first arrest active neighbors, then oppose neighbors if no active
         if active_neighbors:
             arrestee = self.random.choice(active_neighbors)
             sentence = self.random.randint(0, self.model.max_jail_term)

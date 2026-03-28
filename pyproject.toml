@@ -1,0 +1,22 @@
+[project]
+name = "cascade"
+version = "0.1.0"
+description = "Agent-Based Model of Resistance Cascades"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy>=1.24",
+    "pandas>=2.0",
+    "pyarrow>=12.0",
+]
+
+[project.optional-dependencies]
+viz = ["matplotlib>=3.7"]
+batch = ["mpi4py>=3.1"]
+analysis = ["matplotlib>=3.7", "scipy>=1.10", "seaborn>=0.12", "statsmodels>=0.14"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["resistance_cascade"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
