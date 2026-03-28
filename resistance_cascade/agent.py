@@ -1,6 +1,15 @@
 import math
 from .random_walker import RandomWalker
 
+# Integer condition constants for fast comparison
+SUPPORT = 0
+ACTIVE = 1
+OPPOSE = 2
+JAILED = 3
+SECURITY = 4
+
+_COND_STRINGS = ("Support", "Active", "Oppose", "Jailed", "Security")
+
 
 class Citizen(RandomWalker):
     """
@@ -10,6 +19,15 @@ class Citizen(RandomWalker):
 
     _is_citizen = True
     _is_security = False
+
+    __slots__ = (
+        '_update_condition', 'private_preference', 'epsilon',
+        'epsilon_probability', 'oppose_threshold', 'active_threshold',
+        'flip', 'ever_flipped', '_cond', 'perception', 'arrest_prob',
+        'actives_in_vision', 'opposed_in_vision', 'support_in_vision',
+        'security_in_vision', 'opinion', 'activation', 'active_level',
+        'oppose_level', 'jail_sentence', 'active_ratio',
+    )
 
     def __init__(
         self,
@@ -39,7 +57,7 @@ class Citizen(RandomWalker):
         # agent memory attributes
         self.flip = None
         self.ever_flipped = False
-        self.condition = "Support"
+        self._cond = SUPPORT
         self.perception = None
         self.arrest_prob = None
         self.actives_in_vision = 1
@@ -54,6 +72,23 @@ class Citizen(RandomWalker):
         # agent jail attributes
         self.jail_sentence = 0
 
+    @property
+    def condition(self):
+        return _COND_STRINGS[self._cond]
+
+    @condition.setter
+    def condition(self, value):
+        if isinstance(value, int):
+            self._cond = value
+        elif value == "Support":
+            self._cond = SUPPORT
+        elif value == "Active":
+            self._cond = ACTIVE
+        elif value == "Oppose":
+            self._cond = OPPOSE
+        elif value == "Jailed":
+            self._cond = JAILED
+
     # Alias for typo compatibility with original code
     @property
     def opposes_in_vision(self):
@@ -63,39 +98,33 @@ class Citizen(RandomWalker):
         """Decide whether to activate, then move if applicable."""
         self.flip = False
 
-        if self.jail_sentence > 0 or self.condition == "Jailed":
+        if self.jail_sentence > 0 or self._cond == JAILED:
             return
 
-        # Combined neighbor update + count in one grid pass
-        grid = self.model.grid
-        neighborhood = grid.get_neighborhood(self.pos, moore=True, radius=self.vision)
-        grid_data = grid._grid
+        # Count neighbors directly from grid cells without building a list
+        grid_data = self.model.grid._grid
+        neighborhood = self.model.grid.get_neighborhood(self.pos, moore=True, radius=self.vision)
 
         actives = 1
         opposed = 0
         support = 1
         security = 0
-        neighbors = []
-        extend = neighbors.extend
 
         for x, y in neighborhood:
             cell = grid_data[x][y]
             if cell:
-                extend(cell)
+                for n in cell:
+                    if n._is_citizen:
+                        cond = n._cond
+                        if cond == ACTIVE:
+                            actives += 1
+                        elif cond == OPPOSE:
+                            opposed += 1
+                        elif cond == SUPPORT:
+                            support += 1
+                    else:
+                        security += 1
 
-        for n in neighbors:
-            if n._is_citizen:
-                cond = n.condition
-                if cond == "Active":
-                    actives += 1
-                elif cond == "Oppose":
-                    opposed += 1
-                elif cond == "Support":
-                    support += 1
-            else:
-                security += 1
-
-        self.neighbors = neighbors
         self.actives_in_vision = actives
         self.opposed_in_vision = opposed
         self.support_in_vision = support
@@ -108,12 +137,12 @@ class Citizen(RandomWalker):
         if self.jail_sentence > 0:
             self.jail_sentence -= 1
             return
-        elif self.jail_sentence <= 0 and self.condition == "Jailed":
+        elif self.jail_sentence <= 0 and self._cond == JAILED:
             self.pos = self.random.choice(list(self.model.grid.empties))
             self.model.grid.place_agent(self, self.pos)
-            self.condition = "Support"
+            self._cond = SUPPORT
 
-        self.condition = self._update_condition
+        self._cond = self._update_condition
         self.random_move()
 
     def count_neigbhors(self):
@@ -125,12 +154,12 @@ class Citizen(RandomWalker):
 
         for neighbor in self.neighbors:
             if neighbor._is_citizen:
-                cond = neighbor.condition
-                if cond == "Active":
+                cond = neighbor._cond
+                if cond == ACTIVE:
                     self.actives_in_vision += 1
-                elif cond == "Oppose":
+                elif cond == OPPOSE:
                     self.opposed_in_vision += 1
-                elif cond == "Support":
+                elif cond == SUPPORT:
                     self.support_in_vision += 1
             else:
                 self.security_in_vision += 1
@@ -179,14 +208,14 @@ class Citizen(RandomWalker):
 
         # assign condition by activation level
         if self.active_level > random_activation:
-            if self._update_condition != "Active":
+            if self._update_condition != ACTIVE:
                 self.flip = True
                 self.ever_flipped = True
-            self._update_condition = "Active"
+            self._update_condition = ACTIVE
         elif self.oppose_level > random_activation:
-            self._update_condition = "Oppose"
+            self._update_condition = OPPOSE
         else:
-            self._update_condition = "Support"
+            self._update_condition = SUPPORT
 
 
 class Security(RandomWalker):
@@ -197,11 +226,21 @@ class Security(RandomWalker):
     _is_citizen = False
     _is_security = True
 
+    __slots__ = (
+        '_cond', 'memory', 'defected', '_new_identity',
+        'private_preference', 'opinion', 'activation', 'risk_aversion',
+        'oppose_threshold', 'active_threshold', 'epsilon',
+        'epsilon_probability', 'jail_sentence', 'flip', 'ever_flipped',
+        'perception', 'arrest_prob', 'actives_in_vision',
+        'opposed_in_vision', 'support_in_vision', 'security_in_vision',
+        'active_level', 'oppose_level',
+    )
+
     def __init__(self, unique_id, model, pos, vision, private_preference):
         super().__init__(unique_id, model, pos)
         self.pos = pos
         self.vision = vision
-        self.condition = "Security"
+        self._cond = SECURITY
         self.memory = None
         self.defected = False
         self._new_identity = None
@@ -227,6 +266,17 @@ class Security(RandomWalker):
         self.active_level = None
         self.oppose_level = None
 
+    @property
+    def condition(self):
+        return _COND_STRINGS[self._cond]
+
+    @condition.setter
+    def condition(self, value):
+        if isinstance(value, int):
+            self._cond = value
+        elif value == "Security":
+            self._cond = SECURITY
+
     # Alias for typo compatibility
     @property
     def opposes_in_vision(self):
@@ -251,21 +301,21 @@ class Security(RandomWalker):
         for neighbor in self.model.grid.get_cell_list_contents(neighbor_cells):
             if not neighbor._is_citizen:
                 continue
-            cond = neighbor.condition
-            if cond == "Active":
+            cond = neighbor._cond
+            if cond == ACTIVE:
                 active_neighbors.append(neighbor)
-            elif cond == "Oppose" and neighbor.activation is not None and neighbor.activation > threshold_sig:
+            elif cond == OPPOSE and neighbor.activation is not None and neighbor.activation > threshold_sig:
                 oppose_neighbors.append(neighbor)
 
         if active_neighbors:
             arrestee = self.random.choice(active_neighbors)
             sentence = self.random.randint(0, self.model.max_jail_term)
             arrestee.jail_sentence = sentence
-            arrestee.condition = "Jailed"
+            arrestee._cond = JAILED
             self.model.grid.remove_agent(arrestee)
         elif oppose_neighbors:
             arrestee = self.random.choice(oppose_neighbors)
             sentence = self.random.randint(0, self.model.max_jail_term)
             arrestee.jail_sentence = sentence
-            arrestee.condition = "Jailed"
+            arrestee._cond = JAILED
             self.model.grid.remove_agent(arrestee)

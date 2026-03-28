@@ -1,0 +1,15 @@
+{
+  "steps_completed": 200,
+  "revolution": false,
+  "import_time_s": 0.0084,
+  "init_time_s": 0.0747,
+  "run_time_s": 7.2374,
+  "total_time_s": 7.3205,
+  "steps_per_second": 27.63,
+  "fingerprint": "06b042d62a72f87d",
+  "final_active": 2,
+  "final_support": 1115,
+  "final_oppose": 2,
+  "final_jail": 1,
+  "final_spread": 0.000893
+}

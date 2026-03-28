@@ -9,3 +9,7 @@ merged-count	9.9266	20.15	1.80x	06b042d62a72f87d	keep	merge neighbor scan + coun
 skip-security	9.6487	20.73	1.85x	06b042d62a72f87d	keep	remove wasted update_neighbors in Security
 inline-arrest	10.364	19.30	1.72x	06b042d62a72f87d	discard	direct grid access in arrest - slower
 final	9.617	20.80	1.86x	06b042d62a72f87d	keep	reverted inline-arrest
+no-list	8.70	22.99	2.05x	06b042d62a72f87d	discard	eliminate neighbor list building - neutral (1.01x)
+str-attrs	8.47	23.61	2.11x	06b042d62a72f87d	keep	string attr reporters instead of lambdas
+slots	6.53	30.61	2.74x	06b042d62a72f87d	keep	__slots__ on Agent/RandomWalker/Citizen/Security
+int-conds	7.24	27.63	2.47x	06b042d62a72f87d	keep	integer condition constants + combined optimizations

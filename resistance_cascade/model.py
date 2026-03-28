@@ -3,7 +3,7 @@ import logging as log
 import random
 from .scheduler import SimultaneousActivationByTypeFiltered
 from .grid import MultiGrid
-from .agent import Citizen, Security
+from .agent import Citizen, Security, ACTIVE, SUPPORT, OPPOSE, JAILED
 
 
 class DataCollector:
@@ -197,30 +197,30 @@ class ResistanceCascade:
             "Revolution": self.report_revolution,
         }
         agent_reporters = {
-            "pos": lambda a: getattr(a, "pos", None),
-            "condition": lambda a: getattr(a, "condition", None),
-            "opinion": lambda a: getattr(a, "opinion", None),
-            "activation": lambda a: getattr(a, "activation", None),
-            "private_preference": lambda a: getattr(a, "private_preference", None),
-            "epsilon": lambda a: getattr(a, "epsilon", None),
-            "oppose_threshold": lambda a: getattr(a, "oppose_threshold", None),
-            "active_threshold": lambda a: getattr(a, "active_threshold", None),
-            "jail_sentence": lambda a: getattr(a, "jail_sentence", None),
-            "actives_in_vision": lambda a: getattr(a, "actives_in_vision", None),
-            "opposed_in_vision": lambda a: getattr(a, "opposes_in_vision", None),
-            "support_in_vision": lambda a: getattr(a, "supports_in_vision", None),
-            "security_in_vision": lambda a: getattr(a, "security_in_vision", None),
-            "perception": lambda a: getattr(a, "perception", None),
-            "arrest_prob": lambda a: getattr(a, "arrest_prob", None),
-            "active_level": lambda a: getattr(a, "active_level", None),
-            "oppose_level": lambda a: getattr(a, "oppose_level", None),
-            "flip": lambda a: getattr(a, "flip", None),
-            "ever_flipped": lambda a: getattr(a, "ever_flipped", None),
-            "model_seed": lambda a: getattr(a, "dc_seed", None),
-            "model_security_density": lambda a: getattr(a, "dc_security_density", None),
-            "model_private_preference": lambda a: getattr(a, "dc_private_preference", None),
-            "model_epsilon": lambda a: getattr(a, "dc_epsilon", None),
-            "model_threshold": lambda a: getattr(a, "dc_threshold", None),
+            "pos": "pos",
+            "condition": "condition",
+            "opinion": "opinion",
+            "activation": "activation",
+            "private_preference": "private_preference",
+            "epsilon": "epsilon",
+            "oppose_threshold": "oppose_threshold",
+            "active_threshold": "active_threshold",
+            "jail_sentence": "jail_sentence",
+            "actives_in_vision": "actives_in_vision",
+            "opposed_in_vision": "opposes_in_vision",
+            "support_in_vision": "supports_in_vision",
+            "security_in_vision": "security_in_vision",
+            "perception": "perception",
+            "arrest_prob": "arrest_prob",
+            "active_level": "active_level",
+            "oppose_level": "oppose_level",
+            "flip": "flip",
+            "ever_flipped": "ever_flipped",
+            "model_seed": "dc_seed",
+            "model_security_density": "dc_security_density",
+            "model_private_preference": "dc_private_preference",
+            "model_epsilon": "dc_epsilon",
+            "model_threshold": "dc_threshold",
         }
         self.datacollector = DataCollector(
             model_reporters=model_reporters, agent_reporters=agent_reporters
@@ -247,7 +247,7 @@ class ResistanceCascade:
 
         active_or_jailed_agents = sum(
             1 for agent in self.schedule.agents
-            if type(agent) is Citizen and (agent.condition == "Active" or agent.condition == "Jailed")
+            if type(agent) is Citizen and (agent._cond == ACTIVE or agent._cond == JAILED)
         )
         proportion_active_or_jailed = active_or_jailed_agents / self.citizen_count
 
@@ -291,31 +291,19 @@ class ResistanceCascade:
 
     @staticmethod
     def count_active(model):
-        return len([
-            agent for agent in model.schedule.agents_by_type[Citizen].values()
-            if agent.condition == "Active"
-        ])
+        return sum(1 for a in model.schedule.agents_by_type[Citizen].values() if a._cond == ACTIVE)
 
     @staticmethod
     def count_oppose(model):
-        return len([
-            agent for agent in model.schedule.agents_by_type[Citizen].values()
-            if agent.condition == "Oppose"
-        ])
+        return sum(1 for a in model.schedule.agents_by_type[Citizen].values() if a._cond == OPPOSE)
 
     @staticmethod
     def count_support(model):
-        return len([
-            agent for agent in model.schedule.agents_by_type[Citizen].values()
-            if agent.condition == "Support"
-        ])
+        return sum(1 for a in model.schedule.agents_by_type[Citizen].values() if a._cond == SUPPORT)
 
     @staticmethod
     def count_jail(model):
-        return len([
-            agent for agent in model.schedule.agents_by_type[Citizen].values()
-            if agent.condition == "Jailed"
-        ])
+        return sum(1 for a in model.schedule.agents_by_type[Citizen].values() if a._cond == JAILED)
 
     @staticmethod
     def report_security_density(model):

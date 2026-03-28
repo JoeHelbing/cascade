@@ -1,0 +1,15 @@
+# pixi environments
+.pixi/*
+!.pixi/config.toml
+
+# compiled binaries
+cascade_gpu_batch
+cascade_mojo
+gpu_scaling_test
+grid_search_gpu
+manifold_search_gpu
+block_per_sim_gpu
+
+# large output files
+grid_search_results.csv
+manifold_results/

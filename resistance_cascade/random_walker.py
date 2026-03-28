@@ -1,6 +1,12 @@
 class Agent:
     """Minimal agent base class replacing mesa.Agent."""
 
+    __slots__ = (
+        'unique_id', 'model', 'pos', 'random',
+        'dc_private_preference', 'dc_security_density', 'dc_epsilon',
+        'dc_seed', 'dc_threshold',
+    )
+
     def __init__(self, unique_id, model, pos):
         self.unique_id = unique_id
         self.model = model
@@ -20,6 +26,8 @@ class RandomWalker(Agent):
     Base class for agents that can walk randomly on a grid.
     Provides update_neighbors() and random_move().
     """
+
+    __slots__ = ('neighborhood', 'neighbors', 'vision')
 
     def __init__(self, unique_id, model, pos):
         super().__init__(unique_id, model, pos)
