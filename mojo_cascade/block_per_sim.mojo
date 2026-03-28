@@ -13,7 +13,7 @@ Optimizations over one-thread-per-sim:
 """
 
 from std.sys import has_accelerator
-from std.math import exp
+from std.math import exp, log, sqrt
 from std.collections import List
 from std.time import perf_counter_ns
 from std.gpu.host import DeviceContext
@@ -56,6 +56,25 @@ fn lcg_float(state: UInt64) -> Float32:
 @always_inline
 fn lcg_int(state: UInt64, max_val: Int) -> Int:
     return Int((state >> 33) % UInt64(max_val))
+
+
+fn lcg_gauss_val(state: UInt64, mean: Float32, std: Float32) -> Tuple[Float32, UInt64]:
+    """Marsaglia polar method: generates one Gaussian sample.
+    Returns (value, new_state). No trig needed -- GPU compatible."""
+    var s = state
+    var v1: Float32 = 0
+    var rsq: Float32 = 0
+    # Rejection loop: ~78.5% acceptance rate, typically 1-2 iterations
+    while True:
+        s = lcg_next(s)
+        v1 = lcg_float(s) * 2.0 - 1.0
+        s = lcg_next(s)
+        var v2 = lcg_float(s) * 2.0 - 1.0
+        rsq = v1 * v1 + v2 * v2
+        if rsq < 1.0 and rsq > 0.0:
+            break
+    var fac = sqrt(Float32(-2.0) * log(rsq) / rsq)
+    return (mean + std * v1 * fac, s)
 
 
 @always_inline
@@ -434,7 +453,9 @@ def main() raises:
                     master = lcg_next(master)
                     h_rng[base_off + i] = master ^ UInt64(i * 2654435761)
 
-                # Initialize citizens (identical to original)
+                # Initialize citizens
+                # Matches Python: gauss(pp_mean, std=1), gauss(0, epsilon),
+                # gauss(threshold, epsilon) for thresholds
                 for i in range(n_citizens):
                     var idx = base_off + i
                     var rng_state = UInt64(h_rng[idx])
@@ -447,18 +468,25 @@ def main() raises:
                     h_cond[idx] = SUPPORT
                     h_next_cond[idx] = SUPPORT
 
-                    rng_state = lcg_next(rng_state)
-                    h_private_pref[idx] = pp_mean + Float32(1.0) * (lcg_float(rng_state) * 2.0 - 1.0)
+                    # private_pref ~ gauss(pp_mean, 1.0)
+                    var pp_result = lcg_gauss_val(rng_state, pp_mean, Float32(1.0))
+                    h_private_pref[idx] = pp_result[0]
+                    rng_state = pp_result[1]
 
-                    rng_state = lcg_next(rng_state)
-                    var e = model_eps * (lcg_float(rng_state) * 2.0 - 1.0)
+                    # epsilon ~ gauss(0, model_eps)
+                    var eps_result = lcg_gauss_val(rng_state, Float32(0.0), model_eps)
+                    var e = eps_result[0]
+                    rng_state = eps_result[1]
                     h_eps[idx] = e
                     h_eps_prob[idx] = sigmoid_f32(e)
 
-                    rng_state = lcg_next(rng_state)
-                    var t1 = threshold + e * (lcg_float(rng_state) * 2.0 - 1.0)
-                    rng_state = lcg_next(rng_state)
-                    var t2 = threshold + e * (lcg_float(rng_state) * 2.0 - 1.0)
+                    # thresholds ~ gauss(threshold, epsilon) x2, sorted
+                    var t1_result = lcg_gauss_val(rng_state, threshold, e)
+                    var t1 = t1_result[0]
+                    rng_state = t1_result[1]
+                    var t2_result = lcg_gauss_val(rng_state, threshold, e)
+                    var t2 = t2_result[0]
+                    rng_state = t2_result[1]
                     if t1 < t2:
                         h_oppose_th[idx] = t1
                         h_active_th[idx] = t2
