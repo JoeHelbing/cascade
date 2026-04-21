@@ -136,6 +136,7 @@ dmypy.json
 /literature
 /clutter
 /data
+/original_python/data
 /R_regressions/compressed data
 /R_regressions/exp data
 /R_regressions/exploratory
@@ -146,3 +147,24 @@ dmypy.json
 .Rhistory
 /data_1
 *.7z
+
+# Agent tooling / worktrees
+.serena/
+.worktrees/
+
+# Mojo build artefacts
+/build/
+.pixi/
+
+# Autoresearch sweep artefacts
+/autoresearch/**/*_output/
+/autoresearch/results.tsv
+/autoresearch/charts/
+/autoresearch/manifold_results/
+/autoresearch/grid_search_results.csv
+
+# Beads / Dolt files (added by bd init)
+.beads/
+.dolt/
+*.db
+.beads-credential-key

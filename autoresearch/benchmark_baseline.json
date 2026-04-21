@@ -1,0 +1,8 @@
+{
+  "fingerprint": "7f06c9c9f5edc0d22cbab2b0624a2cc3ee945fd737e94c74a870df73f4f94c8b",
+  "num_sims": 45,
+  "kernel_time_s": 20.396857645,
+  "throughput_sims_sec": 2.20622219281072,
+  "wall_time_s": 21.05542856300599,
+  "binary": "./cascade_gpu_batch"
+}
