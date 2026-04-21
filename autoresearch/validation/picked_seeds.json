@@ -1,0 +1,94 @@
+{
+  "params": {
+    "width": 40,
+    "height": 40,
+    "citizen_vision": 7,
+    "citizen_density": 0.7,
+    "security_density": 0.0,
+    "security_vision": 7,
+    "max_jail_term": 100,
+    "movement": true,
+    "multiple_agents_per_cell": true,
+    "private_preference_distribution_mean": 0.0,
+    "standard_deviation": 1.0,
+    "epsilon": 0.5,
+    "threshold": 3.5,
+    "max_iters": 500
+  },
+  "steps": 500,
+  "min_peak": 50,
+  "picked": [
+    {
+      "seed": 2,
+      "peak_active": 1120,
+      "peak_step": 5,
+      "revolution": true
+    },
+    {
+      "seed": 3,
+      "peak_active": 1120,
+      "peak_step": 5,
+      "revolution": true
+    },
+    {
+      "seed": 7,
+      "peak_active": 1120,
+      "peak_step": 6,
+      "revolution": true
+    },
+    {
+      "seed": 8,
+      "peak_active": 1120,
+      "peak_step": 5,
+      "revolution": true
+    },
+    {
+      "seed": 12,
+      "peak_active": 1120,
+      "peak_step": 5,
+      "revolution": true
+    },
+    {
+      "seed": 13,
+      "peak_active": 1120,
+      "peak_step": 5,
+      "revolution": true
+    },
+    {
+      "seed": 19,
+      "peak_active": 1120,
+      "peak_step": 5,
+      "revolution": true
+    },
+    {
+      "seed": 21,
+      "peak_active": 1120,
+      "peak_step": 6,
+      "revolution": true
+    },
+    {
+      "seed": 24,
+      "peak_active": 1120,
+      "peak_step": 5,
+      "revolution": true
+    },
+    {
+      "seed": 25,
+      "peak_active": 1120,
+      "peak_step": 5,
+      "revolution": true
+    },
+    {
+      "seed": 26,
+      "peak_active": 1120,
+      "peak_step": 5,
+      "revolution": true
+    },
+    {
+      "seed": 28,
+      "peak_active": 1120,
+      "peak_step": 5,
+      "revolution": true
+    }
+  ]
+}

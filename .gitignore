@@ -168,3 +168,6 @@ dmypy.json
 .dolt/
 *.db
 .beads-credential-key
+
+# Claude Code runtime
+.claude/scheduled_tasks.lock
