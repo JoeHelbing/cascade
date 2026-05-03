@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "cascade",
+  "project_id": "77e337e0-344c-4e5e-90bc-bca675be4a42"
+}
