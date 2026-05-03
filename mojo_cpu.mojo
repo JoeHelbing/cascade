@@ -37,9 +37,9 @@ comptime OPPOSE: Int = 2
 comptime JAILED: Int = 3
 comptime SECURITY_COND: Int = 4
 
-comptime GRID_W: Int = 40
-comptime GRID_H: Int = 40
-comptime VISION: Int = 7
+comptime DEFAULT_WIDTH: Int = 40
+comptime DEFAULT_HEIGHT: Int = 40
+comptime DEFAULT_VISION: Int = 7
 
 
 # Bit-exact exp / sigmoid against Mesa require CPython's libm-backed math.exp.
@@ -492,12 +492,12 @@ struct CpuConfig:
         self.seeds.append(2); self.seeds.append(3); self.seeds.append(7); self.seeds.append(8)
         self.seeds.append(12); self.seeds.append(13); self.seeds.append(19); self.seeds.append(21)
         self.seeds.append(24); self.seeds.append(25); self.seeds.append(26); self.seeds.append(28)
-        self.width = GRID_W
-        self.height = GRID_H
-        self.citizen_vision = VISION
+        self.width = DEFAULT_WIDTH
+        self.height = DEFAULT_HEIGHT
+        self.citizen_vision = DEFAULT_VISION
         self.citizen_density = 0.7
         self.security_density = 0.0
-        self.security_vision = VISION
+        self.security_vision = DEFAULT_VISION
         self.max_jail_term = 100
         self.movement = True
         self.multiple_agents_per_cell = True
