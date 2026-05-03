@@ -14,7 +14,7 @@ autoresearch/
 ├── agent_sim_params.json     params used across sweeps (vision, grid, thresholds)
 ├── benchmark.py              wall-clock + throughput measurements against benchmark_baseline.json
 ├── benchmark_baseline.json   baseline numbers from the current main
-├── validation/               correctness harness (CPU vs Python, step-by-step traces)
+├── validation/               correctness harness (Mesa vs Mojo CPU; GPU comparison support)
 ├── sweeps/                   parameter sweeps (1D, 1E paired, 7D, manifold)
 ├── analysis/                 post-hoc charts and reports for sweep outputs
 └── PLAN-manifold-grid-search.md   plan doc for the 3D manifold exploration
@@ -22,11 +22,9 @@ autoresearch/
 
 ## Validation chain
 
-The correctness gate before any performance claim:
+The correctness gate before any performance claim is documented in [`validation/README.md`](validation/README.md) and [`../docs/verification/`](../docs/verification/).
 
-1. `validation/run_python_trace.py` — run `original_python/` for N seeds x 500 steps; dump per-agent per-step state to parquet.
-2. `validation/run_mojo_cpu_trace.py` — compile `mojo_cpu.mojo` with trace mode, run same seeds, dump parquet.
-3. `validation/compare_traces.py` — diff the parquets, report any divergent agent-step tuples.
+In short: generate Mesa traces with `validation/run_python_trace.py`, run `mojo_cpu.mojo` for the same picked seeds, compare with `validation/compare_bitexact.py` / `validation/compare_mojo_cpu.py`, then use the CPU/GPU comparison and benchmark fingerprinting path for `mojo_gpu.mojo`.
 
 Seeds are pre-selected for *non-trivial dynamics* — activation counts that actually move above zero, not stuck-at-support trivial runs.
 

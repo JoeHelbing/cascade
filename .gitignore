@@ -137,13 +137,13 @@ dmypy.json
 /clutter
 /data
 /original_python/data
-/R_regressions/compressed data
-/R_regressions/exp data
-/R_regressions/exploratory
-/R_regressions/icews files
-/R_regressions/Vdem
-/R_regressions/world bank data
-/R_regressions/protests.csv
+/empirical_regressions/compressed data
+/empirical_regressions/exp data
+/empirical_regressions/exploratory
+/empirical_regressions/icews files
+/empirical_regressions/Vdem
+/empirical_regressions/world bank data
+/empirical_regressions/protests.csv
 .Rhistory
 /data_1
 *.7z
@@ -151,6 +151,9 @@ dmypy.json
 # Agent tooling / worktrees
 .serena/
 .worktrees/
+.agents/
+.claude/
+.codex/
 
 # Mojo build artefacts
 /build/
@@ -163,11 +166,14 @@ dmypy.json
 /autoresearch/manifold_results/
 /autoresearch/grid_search_results.csv
 
-# Beads / Dolt files (added by bd init)
-.beads/
-.dolt/
-*.db
-.beads-credential-key
+# Validation run artefacts (regenerable via capture_mesa/replay/mojo_cpu)
+/autoresearch/validation/captures/
+/autoresearch/validation/*.parquet
+/autoresearch/validation/*.csv
+/autoresearch/validation/*.html
+/autoresearch/validation/picked_oscillating_mesa.json
+/autoresearch/validation/picked_seeds_oscillating*.json
+
 
 # Claude Code runtime
 .claude/scheduled_tasks.lock

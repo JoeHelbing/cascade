@@ -2,18 +2,19 @@
 
 Three progressively-optimized implementations of the same agent-based model of resistance cascades in authoritarian regimes, plus an autoresearch harness for systematic optimization.
 
-Paper: [Mentos Regimes: How Individual Uncertainty Affects the Explosive Strength of Resistance Movements](./Resistance%20Cascade%20Thesis.pdf)
+Paper: [Mentos Regimes: How Individual Uncertainty Affects the Explosive Strength of Resistance Movements](./docs/paper/Resistance%20Cascade%20Thesis.pdf)
 
 ## Layout
 
 ```
 cascade/
-├── original_python/    Original Mesa-based reference implementation (unchanged thesis code)
-├── mojo_cpu.mojo       Single-file Mojo CPU port (struct-of-arrays, ~3.8x faster than Python)
-├── mojo_gpu.mojo       Single-file Mojo GPU kernel (block-per-sim, spatial grid, ~17x wall clock)
-├── autoresearch/       Karpathy-style autoresearch orchestrator + sweeps + validation
-├── R_regressions/      Empirical protest data analysis (R)
-└── build/              Compiled mojo binaries (gitignored)
+├── original_python/        Original Mesa-based reference implementation (unchanged thesis code)
+├── mojo_cpu.mojo           Single-file Mojo CPU validation bridge
+├── mojo_gpu.mojo           Single-file Mojo GPU kernel (block-per-sim throughput engine)
+├── autoresearch/           Benchmarking, sweeps, validation, and analysis workflow
+├── empirical_regressions/  Empirical protest data analysis (R)
+├── docs/                   Repository guide, verification guide, and paper material
+└── build/                  Compiled mojo binaries (gitignored)
 ```
 
 ## The Three-File Contract
@@ -28,12 +29,12 @@ This is the [karpathy/autoresearch](https://github.com/karpathy/autoresearch) co
 
 ## Validation chain
 
-`autoresearch/validation/` contains the cross-check harness:
+`autoresearch/validation/` contains the cross-check harness. Start with [`docs/verification/`](docs/verification/) for the full human-facing map.
 
-1. Run `original_python/` with a fixed set of seeds (chosen so activations actually move) — dump per-agent per-step state to parquet.
-2. Run `mojo_cpu.mojo` with the same seeds — dump per-agent per-step state to parquet.
-3. Diff the two parquets. Any divergence is a correctness bug in the mojo port.
-4. Run `mojo_gpu.mojo` against `mojo_cpu.mojo` for GPU-side validation.
+1. Run `original_python/` with the picked seeds — dump Mesa per-agent and per-step traces.
+2. Run `mojo_cpu.mojo` with the same seeds — emit per-agent CSV / model traces.
+3. Compare with `compare_bitexact.py` and `compare_mojo_cpu.py`. Any divergence is a correctness bug in the CPU port.
+4. Run `mojo_gpu.mojo` against the CPU/GPU comparison harness and benchmark fingerprinting for GPU-side validation.
 
 ## Quick start
 
@@ -41,7 +42,8 @@ This is the [karpathy/autoresearch](https://github.com/karpathy/autoresearch) co
 pixi install
 pixi run build-cpu      # compile mojo_cpu.mojo -> build/mojo_cpu
 pixi run build-gpu      # compile mojo_gpu.mojo -> build/mojo_gpu
-pixi run validate       # run the CPU <-> Python correctness chain
+# CPU verification currently uses scripts in autoresearch/validation/;
+# see docs/verification/ for the exact validation map.
 ```
 
 ## Branch policy

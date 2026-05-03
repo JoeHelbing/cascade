@@ -2,12 +2,12 @@
 
 Paper can be found at:
 [Mentos Regimes: How Individual Uncertainty Affects the Explosive Strength of Resistance Movements—People are the Real Freshmakers
-](./Resistance%20Cascade%20Thesis.pdf)
+](../docs/paper/Resistance%20Cascade%20Thesis.pdf)
 
 ## Summary
 This article looks at the empirical data on protests in authoritarian countries as a function of regime type and information control, then constructs an agent based model to examine how the effect of uncertainty can help explain the differences in protest and resistance movements in these differing regime types. The agent based model instantiates two agent types, Citizen and Security, and shows how an inverse relationship between uncertainty with regards to acceptable public opposition, the probability of suffering costs, and the ability to accurately perceive local regime support lead to differences in resistance movements. Analysis focuses on the speed of resistance spread between agents as a function of individual agent level uncertainty, and how this affects total resistance size, either full equilibrium flips, i.e. successful revolutions, or protracted unrest. Investigation of empirical data shows reduced frequency of protests in more authoritarian regimes and regimes with higher levels of information control. Modeling dynamics further confirms this behavior and shows a potential connection between lower information control and more frequent but slower spreading, smaller scale resistance events while higher information control is connected with faster inter-agent resistance spread, and larger resistance levels at a reduced frequency.
 
-The data cleaning and analysis R scripts for the section Empirical Observations of Protest Events in Authoritarian Polities are in the 'R_regressions' folder.
+The data cleaning and analysis R scripts for the section Empirical Observations of Protest Events in Authoritarian Polities are in `../empirical_regressions/`.
 
 The Python code for the agent based model is in the 'resistance_cascade' folder. The model is built using the Mesa framework for agent-based modeling in Python. 
 
