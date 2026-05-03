@@ -29,12 +29,18 @@ This is the [karpathy/autoresearch](https://github.com/karpathy/autoresearch) co
 
 ## Validation chain
 
-`autoresearch/validation/` contains the cross-check harness. Start with [`docs/verification/`](docs/verification/) for the full human-facing map.
+`autoresearch/validation/` is the canonical cross-check harness. Start there for commands, or read [`docs/verification/`](docs/verification/) for the human-facing map.
+
+```bash
+pixi run validate-cpu   # original_python -> mojo_cpu bit-exact gate
+pixi run validate-gpu   # mojo_gpu aggregate smoke/fingerprint gate
+pixi run validate       # both boundaries in order
+```
 
 1. Run `original_python/` with the picked seeds — dump Mesa per-agent and per-step traces.
-2. Run `mojo_cpu.mojo` with the same seeds — emit per-agent CSV / model traces.
-3. Compare with `compare_bitexact.py` and `compare_mojo_cpu.py`. Any divergence is a correctness bug in the CPU port.
-4. Run `mojo_gpu.mojo` against the CPU/GPU comparison harness and benchmark fingerprinting for GPU-side validation.
+2. Run `mojo_cpu.mojo` with the same seeds — emit per-agent CSV.
+3. Compare with `compare_bitexact.py`. Any divergence is a correctness bug in the CPU port.
+4. Run `mojo_gpu.mojo` through the GPU aggregate gate.
 
 ## Quick start
 
@@ -42,8 +48,8 @@ This is the [karpathy/autoresearch](https://github.com/karpathy/autoresearch) co
 pixi install
 pixi run build-cpu      # compile mojo_cpu.mojo -> build/mojo_cpu
 pixi run build-gpu      # compile mojo_gpu.mojo -> build/mojo_gpu
-# CPU verification currently uses scripts in autoresearch/validation/;
-# see docs/verification/ for the exact validation map.
+pixi run validate-cpu   # Mesa -> Mojo CPU correctness
+pixi run validate-gpu   # Mojo GPU aggregate validation
 ```
 
 ## Branch policy

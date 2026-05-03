@@ -1,55 +1,94 @@
-# Validation Chain
+# Validation Pipeline
 
-Correctness gate between `original_python/` (Mesa reference) and the Mojo ports. Every autoresearch branch that modifies `mojo_cpu.mojo` or `mojo_gpu.mojo` should pass the relevant checks before benchmark numbers are considered.
+This directory is the canonical correctness gate for the implementation chain:
 
-For the paper-facing overview, see [`../../docs/verification/`](../../docs/verification/).
+```text
+original_python/ Mesa reference
+    ↓ bit-exact per-agent trace comparison
+mojo_cpu.mojo
+    ↓ aggregate GPU smoke/fingerprint gate
+mojo_gpu.mojo
+```
 
-## Canonical CPU scripts and artifacts
+## Quick commands
+
+```bash
+pixi run validate-cpu   # Mesa trace -> mojo_cpu trace -> bit-exact compare
+pixi run validate-gpu   # build/run mojo_gpu and check 45 aggregate Sim lines
+pixi run validate       # run both boundaries in order
+```
+
+The direct orchestrator is:
+
+```bash
+uv run autoresearch/validation/run_pipeline.py --stage cpu
+uv run autoresearch/validation/run_pipeline.py --stage gpu
+uv run autoresearch/validation/run_pipeline.py --stage all
+```
+
+## Live files
 
 | Path | Purpose |
 |---|---|
-| `picked_seeds.json` | Fixed seed/config set chosen for non-trivial dynamics. |
-| `run_python_trace.py` | Runs Mesa reference traces for the picked seeds. |
-| `python_trace.parquet` | Mesa per-agent trace artifact; ignored because it is regenerable. |
-| `python_model_trace.parquet` | Mesa per-step/model trace artifact; ignored because it is regenerable. |
-| `mojo_cpu_bitexact.csv` | Mojo CPU per-agent trace artifact emitted by `mojo_cpu.mojo`; ignored because it is regenerable. |
-| `mojo_cpu_model_trace.csv` | Mojo CPU per-step/model trace artifact; ignored because it is regenerable. |
-| `compare_bitexact.py` | Bit-exact per-agent comparison. |
-| `compare_mojo_cpu.py` | Aggregate/model-trace comparison. |
+| `picked_seeds.json` | Canonical CPU validation seed/config set chosen for non-trivial dynamics. |
+| `run_python_trace.py` | Runs the original Mesa model and writes `python_trace.parquet` plus `python_model_trace.parquet`. |
+| `compare_bitexact.py` | Bit-exact per-agent gate from Mesa parquet to `mojo_cpu.mojo` CSV output. |
+| `compare_mojo_cpu.py` | Secondary aggregate/model-trace helper; useful for summaries, not the primary bit-exact gate. |
+| `run_pipeline.py` | One public CLI for `cpu`, `gpu`, or `all` validation stages. |
+| `../../mojo_cpu.mojo` | CPU validation bridge; emits per-agent CSV to stdout. |
+| `../../mojo_gpu.mojo` | GPU throughput kernel; emits aggregate `Sim ...` lines. |
 
-## CPU validation workflow
+## CPU validation: Python -> Mojo CPU
+
+`mojo_cpu.mojo` is expected to be bit-exact against Mesa for the picked seed set.
+The orchestrator runs these steps:
 
 ```bash
 uv run autoresearch/validation/run_python_trace.py
 pixi run build-cpu
-pixi run run-cpu > autoresearch/validation/mojo_cpu_bitexact.csv
+build/mojo_cpu > autoresearch/validation/mojo_cpu_bitexact.csv
 uv run autoresearch/validation/compare_bitexact.py \
-  --python autoresearch/validation/python_trace.parquet \
+  --mesa autoresearch/validation/python_trace.parquet \
   --mojo autoresearch/validation/mojo_cpu_bitexact.csv
 ```
 
-The current project memory records the CPU port as bit-exact for the picked-seed dataset: `96,320 / 96,320` citizen rows matched Mesa bit-for-bit.
+Expected success text from the comparer:
 
-## GPU validation status
+```text
+PASS: mojo_cpu is bit-for-bit identical to Mesa on every tracked column.
+```
 
-GPU validation currently uses aggregate output comparison and benchmark fingerprinting rather than a clean per-agent trace dataset. Relevant files:
+## GPU validation: Mojo CPU boundary -> Mojo GPU
 
-- `../../mojo_gpu.mojo` — hardcoded 45-run correctness parameter set.
-- `../analysis/compare_outputs.py` — Python comparison script with matching hardcoded values.
-- `../benchmarks/gpu_kernel_benchmark.py` and `../benchmarks/benchmark_baseline.json` — benchmark and sorted-output fingerprint path.
+GPU validation is currently less formal than CPU validation. `mojo_gpu.mojo` uses
+GPU-safe LCG/Float32 logic, so it is not bit-exact against the Mesa trace. The
+current gate is an aggregate smoke/fingerprint-style check: build/run the GPU
+binary, capture `mojo_gpu_output.txt`, and assert the hardcoded 45-run
+correctness grid produces 45 `Sim ...` lines.
 
-A paper-grade GPU verification pass should add a documented GPU trace artifact analogous to the CPU bit-exact path.
+The hardcoded GPU grid is:
 
-## Historical and exploratory scripts
+- seeds: `42, 123, 456, 789, 1001`
+- epsilons: `0.2, 0.5, 1.0`
+- security densities: `0.0, 0.02, 0.05`
+- steps: `50`
 
-These scripts are retained because they encode useful debugging history, but they are not the primary CPU trace gate:
+## Archive
 
-- `cross_validate.py`, `cross_validate_full.py`, `cross_validate_inject.py`, `cross_validate_step_metrics.py`
-- `gpu_algo_python.py`
-- `capture_mesa.py`, `replay_python.py`, `capture_oscillating_trace.py`
-- `sweep_oscillating.py`, `sweep_oscillating_with_sec.py`, `probe_oscillation.py`
-- `build_animation.py`, `build_showboat.py`
+Historical scripts and generated artifacts were moved to
+[`archive/`](archive/) so this directory only shows the live validation chain.
+Nothing was deleted.
 
-## Seed selection criterion
+Examples in `archive/historical/` include old `cross_validate*.py`, replay,
+capture, seed-picking, oscillation, animation, and showboat helpers. They are
+kept for provenance and debugging and may contain stale embedded paths.
 
-Seeds are picked so that trajectories actually move: at some step, at least the configured minimum number of agents are Active. Validating against seeds stuck at Support forever is vacuous.
+Generated local outputs such as `*.parquet`, `*.csv`, `*.html`, captures, and
+caches live under `archive/generated/` when preserved from old runs. New
+canonical validation runs write fresh artifacts back to this directory root.
+
+## Gap to close later
+
+A paper-grade GPU gate should emit a clean GPU trace dataset or stable aggregate
+fixture analogous to the CPU bit-exact trace path. Until then, preserve the
+boundary discipline: validate Mesa -> CPU first, then CPU -> GPU separately.

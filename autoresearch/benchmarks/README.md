@@ -1,10 +1,10 @@
 # Benchmarks
 
-Fixed evaluation harnesses for performance and fingerprint checks.
+Fixed evaluation harnesses for performance checks. Correctness validation lives in `../validation/`; start with `pixi run validate-cpu`, `pixi run validate-gpu`, or `pixi run validate`.
 
 | File | Purpose |
 |---|---|
-| `gpu_kernel_benchmark.py` | Runs GPU binaries, hashes sorted `Sim ...` output lines, and compares throughput/fingerprint against `benchmark_baseline.json`. |
+| `gpu_kernel_benchmark.py` | Historical GPU benchmark/fingerprint helper for old binary names; use `../validation/run_pipeline.py` for the live GPU validation smoke gate. |
 | `benchmark_baseline.json` | Current GPU benchmark/fingerprint baseline. |
 | `python_reference_benchmark.py` | Fixed benchmark for the original Python/Mesa implementation. |
 

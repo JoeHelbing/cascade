@@ -10,15 +10,9 @@ build-cpu = "mojo build mojo_cpu.mojo -o build/mojo_cpu"
 build-gpu = "mojo build mojo_gpu.mojo -o build/mojo_gpu"
 run-cpu = { cmd = "build/mojo_cpu", depends-on = ["build-cpu"] }
 run-gpu = { cmd = "build/mojo_gpu", depends-on = ["build-gpu"] }
-validate = "python autoresearch/validate_cpu_vs_python.py"
+validate-cpu = "uv run autoresearch/validation/run_pipeline.py --stage cpu"
+validate-gpu = "uv run autoresearch/validation/run_pipeline.py --stage gpu"
+validate = "uv run autoresearch/validation/run_pipeline.py --stage all"
 
 [dependencies]
 mojo = ">=0.26.2.0,<0.27"
-scipy = ">=1.17.1,<2"
-
-[pypi-dependencies]
-plotly = ">=6.6.0, <7"
-numpy = ">=2.4.3, <3"
-pandas = ">=2.0,<3"
-pyarrow = ">=15,<21"
-kaleido = ">=1.2.0, <2"
