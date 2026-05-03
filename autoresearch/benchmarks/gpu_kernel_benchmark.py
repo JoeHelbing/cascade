@@ -3,8 +3,8 @@ Benchmark harness for block_per_sim GPU kernel.
 Compares correctness (SHA-256 fingerprint) and throughput against baseline.
 
 Usage:
-    uv run benchmark_block_per_sim.py --baseline   # Save baseline fingerprint + timing
-    uv run benchmark_block_per_sim.py --compare    # Compare against saved baseline
+    uv run autoresearch/benchmarks/gpu_kernel_benchmark.py --baseline
+    uv run autoresearch/benchmarks/gpu_kernel_benchmark.py --compare
 """
 import hashlib
 import json
@@ -13,7 +13,7 @@ import sys
 import time
 from pathlib import Path
 
-BASELINE_FILE = Path("benchmark_baseline.json")
+BASELINE_FILE = Path(__file__).parent / "benchmark_baseline.json"
 BLOCK_PER_SIM_BIN = "./block_per_sim_gpu"
 BASELINE_BIN = "./cascade_gpu_batch"
 

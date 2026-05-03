@@ -72,7 +72,7 @@ GPU validation is still less formal than CPU validation:
 
 - `mojo_gpu.mojo` uses a hardcoded 45-run correctness parameter set.
 - `autoresearch/analysis/compare_outputs.py` mirrors that parameter set for comparison.
-- `autoresearch/benchmark.py` and `autoresearch/benchmark_baseline.json` provide benchmark/fingerprint validation.
+- `autoresearch/benchmarks/gpu_kernel_benchmark.py` and `autoresearch/benchmarks/benchmark_baseline.json` provide benchmark/fingerprint validation.
 - There is not yet a clean GPU per-agent trace dataset analogous to the CPU bit-exact path.
 
 ### Paper-facing verification gaps

@@ -36,7 +36,7 @@ GPU validation currently uses aggregate output comparison and benchmark fingerpr
 
 - `../../mojo_gpu.mojo` — hardcoded 45-run correctness parameter set.
 - `../analysis/compare_outputs.py` — Python comparison script with matching hardcoded values.
-- `../benchmark.py` and `../benchmark_baseline.json` — benchmark and sorted-output fingerprint path.
+- `../benchmarks/gpu_kernel_benchmark.py` and `../benchmarks/benchmark_baseline.json` — benchmark and sorted-output fingerprint path.
 
 A paper-grade GPU verification pass should add a documented GPU trace artifact analogous to the CPU bit-exact path.
 

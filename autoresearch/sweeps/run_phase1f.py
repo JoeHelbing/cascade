@@ -1,11 +1,12 @@
 """
 Phase 1F: Run all agent-level simulations in batches.
 
-Reads agent_sim_params.json, converts to the config format expected by
-run_agent_sims.py, and runs in batches of 16 sims to fit in GPU memory.
+Reads autoresearch/configs/agent_sim_params.json, converts to the config format
+expected by run_agent_sims.py, and runs in batches of 16 sims to fit in GPU
+memory.
 
 Usage:
-    pixi run python run_phase1f.py
+    pixi run python autoresearch/sweeps/run_phase1f.py
 """
 
 import json
@@ -110,9 +111,11 @@ def load_agent_batch_to_db(conn, agent_data_path, batch_sims, num_steps, batch_o
 
 
 def main():
-    params_file = Path("agent_sim_params.json")
+    autoresearch_dir = Path(__file__).resolve().parents[1]
+    params_file = autoresearch_dir / "configs" / "agent_sim_params.json"
     if not params_file.exists():
-        print("ERROR: agent_sim_params.json not found")
+        print(f"ERROR: {params_file} not found")
+        print("Generate it with: uv run autoresearch/sweeps/generate_agent_params.py")
         sys.exit(1)
 
     with open(params_file) as f:

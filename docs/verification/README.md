@@ -64,8 +64,8 @@ Related files:
 | Path | Role |
 |---|---|
 | `autoresearch/analysis/compare_outputs.py` | Python comparison script with matching hardcoded values. |
-| `autoresearch/benchmark.py` | Benchmark/fingerprint comparison for sorted `Sim ...` output lines. |
-| `autoresearch/benchmark_baseline.json` | Older benchmark fingerprint baseline. |
+| `autoresearch/benchmarks/gpu_kernel_benchmark.py` | Benchmark/fingerprint comparison for sorted `Sim ...` output lines. |
+| `autoresearch/benchmarks/benchmark_baseline.json` | Older benchmark fingerprint baseline. |
 | `autoresearch/analysis/visualize_comparison.py` | Historical embedded cross-validation table; useful as an analysis artifact, not the live canonical validation dataset. |
 
 ## Legacy and exploratory validation scripts

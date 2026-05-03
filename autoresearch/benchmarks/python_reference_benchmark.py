@@ -10,11 +10,11 @@ and measures wall clock time. This is the evaluation harness — DO NOT MODIFY
 during optimization work.
 
 Usage:
-    uv run benchmark.py                  # Run benchmark, print results
-    uv run benchmark.py --baseline       # Save current results as baseline
-    uv run benchmark.py --compare        # Compare against saved baseline
-    uv run benchmark.py --steps 100      # Override step count
-    uv run benchmark.py --json           # Output as JSON
+    uv run autoresearch/benchmarks/python_reference_benchmark.py
+    uv run autoresearch/benchmarks/python_reference_benchmark.py --baseline
+    uv run autoresearch/benchmarks/python_reference_benchmark.py --compare
+    uv run autoresearch/benchmarks/python_reference_benchmark.py --steps 100
+    uv run autoresearch/benchmarks/python_reference_benchmark.py --json
 """
 import argparse
 import hashlib

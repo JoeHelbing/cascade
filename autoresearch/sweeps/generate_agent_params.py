@@ -1,7 +1,7 @@
 """Generate Phase 1F agent-level simulation parameter configurations.
 
-Produces agent_sim_params.json with ~459 carefully chosen parameter
-coordinates for per-agent state capture across four analysis groups.
+Produces autoresearch/configs/agent_sim_params.json with carefully chosen
+parameter coordinates for per-agent state capture across four analysis groups.
 """
 
 import json
@@ -102,7 +102,8 @@ def main():
                 })
 
     # Write JSON
-    out_path = Path(__file__).parent / "agent_sim_params.json"
+    out_path = Path(__file__).resolve().parents[1] / "configs" / "agent_sim_params.json"
+    out_path.parent.mkdir(exist_ok=True)
     with open(out_path, "w") as f:
         json.dump(params, f, indent=2)
 
