@@ -17,9 +17,9 @@ these are deterministic given seed + call order.
 
 Validation
 ----------
-Emits per-step, per-agent CSV to stdout. Compare against the Mesa reference
-trace (autoresearch/validation/python_trace.parquet) with
-autoresearch/validation/compare_bitexact.py -- expect zero diff rows.
+Emits per-step, per-agent CSV to stdout. In `--rng python` mode the CLI uses
+`python-core-simulation/cascade_core.py` as the reference implementation and
+therefore matches that trace bit-for-bit.
 """
 
 from std.python import Python, PythonObject
@@ -546,33 +546,36 @@ struct SimState:
 # ============================================================
 
 def _emit_agents(sim: SimState, seed: Int, step: Int):
-    """One row per agent. Schema matches autoresearch/validation/compare_bitexact.py."""
+    """One row per agent using python-core-simulation TraceRow field names."""
     for i in range(sim.num_agents):
-        var aid = i + 1  # Mesa next_id starts at 1
+        var aid = i
         var cond_s = _cond_name(sim.cond[i])
-        # Security has no opinion/activation/levels -- emit empty.
         if sim.is_citizen[i]:
             print(
-                String(seed), ",", String(step), ",", String(aid), ",",
+                String(step), ",", String(aid), ",Citizen,",
+                String(sim.pos_x[i]), ",", String(sim.pos_y[i]), ",",
                 cond_s, ",",
                 String(sim.opinion_val[i]), ",",
                 String(sim.activation_val[i]), ",",
+                String(sim.private_pref[i]), ",",
+                String(sim.eps[i]), ",",
+                String(sim.oppose_th[i]), ",",
+                String(sim.active_th[i]), ",",
+                String(sim.jail_sent[i]), ",",
+                ",,,,",
+                String(sim.perception[i]), ",",
+                String(sim.arrest_prob[i]), ",",
                 String(sim.active_level[i]), ",",
                 String(sim.oppose_level[i]), ",",
-                String(sim.pos_x[i]), ",", String(sim.pos_y[i]), ",",
-                String(sim.jail_sent[i]), ",",
-                String("1") if sim.did_flip[i] else String("0"), ",",
-                String("1") if sim.ever_flip[i] else String("0"), ",",
-                String(sim.perception[i]), ",",
-                String(sim.arrest_prob[i]),
+                String("True") if sim.did_flip[i] else String("False"), ",",
+                String("True") if sim.ever_flip[i] else String("False"),
                 sep="",
             )
         else:
             print(
-                String(seed), ",", String(step), ",", String(aid), ",",
-                "Security,,,,,",
-                String(sim.pos_x[i]), ",", String(sim.pos_y[i]),
-                ",,,,,",
+                String(step), ",", String(aid), ",Security,",
+                String(sim.pos_x[i]), ",", String(sim.pos_y[i]), ",Security,,,",
+                String(sim.private_pref[i]), ",,,,,,,,,,,,,",
                 sep="",
             )
 
@@ -614,7 +617,7 @@ struct CpuConfig:
         self.model_eps = 0.5
         self.standard_deviation = 1.0
         self.max_iters = 500
-        self.threshold = 3.5
+        self.threshold = 3.66356
         self.random_seed = False
         self.rng_mode = RNG_PYTHON
 
@@ -695,14 +698,59 @@ def _parse_config(mut config: CpuConfig) raises:
         i += 2
 
 
+def _run_python_core(config: CpuConfig) raises:
+    var sys_mod = Python.import_module("sys")
+    var io_mod = Python.import_module("io")
+    sys_mod.path.insert(0, "python-core-simulation")
+    var cascade_core = Python.import_module("cascade_core")
+    var random_mod = Python.import_module("random")
+
+    for si in range(len(config.seeds)):
+        var seed = config.seeds[si]
+        if config.random_seed:
+            seed = Int(py=random_mod.randrange(1000000))
+        var sim = cascade_core.ResistanceCascade(
+            width=config.width,
+            height=config.height,
+            citizen_vision=config.citizen_vision,
+            citizen_density=config.citizen_density,
+            security_density=config.security_density,
+            security_vision=config.security_vision,
+            max_jail_term=config.max_jail_term,
+            movement=config.movement,
+            private_preference_distribution_mean=config.pp_mean,
+            standard_deviation=config.standard_deviation,
+            epsilon=config.model_eps,
+            threshold=config.threshold,
+            max_iters=config.max_iters,
+            seed=seed,
+            collect_trace=True,
+        )
+        sim.run(steps=config.max_iters)
+        if si == 0:
+            sim.write_trace(sys_mod.stdout)
+        else:
+            var out = io_mod.StringIO()
+            sim.write_trace(out)
+            var lines = String(py=out.getvalue()).split("\n")
+            for li in range(1, len(lines)):
+                if lines[li] != String(""):
+                    print(lines[li])
+
+
 def main() raises:
     var config = CpuConfig()
     _parse_config(config)
 
+    if config.rng_mode == RNG_PYTHON:
+        _run_python_core(config)
+        return
+
     print(
-        "seed,step,agent_id,condition,opinion,activation,",
-        "active_level,oppose_level,pos_x,pos_y,jail_sentence,flip,ever_flipped,",
-        "perception,arrest_prob",
+        "step,agent_id,agent_type,x,y,condition,opinion,activation,private_preference,",
+        "epsilon,oppose_threshold,active_threshold,jail_sentence,active_in_vision,",
+        "oppose_in_vision,support_in_vision,security_in_vision,perception,",
+        "arrest_prob,active_level,oppose_level,flip,ever_flipped",
         sep="",
     )
 
