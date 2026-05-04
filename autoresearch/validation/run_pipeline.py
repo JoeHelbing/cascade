@@ -5,10 +5,11 @@ The validation chain is intentionally split at implementation boundaries:
 
     original_python/ -> mojo_cpu.mojo -> mojo_gpu.mojo
 
-CPU validation is bit-exact against the Mesa reference traces. GPU validation is
-currently an aggregate smoke/fingerprint gate around the self-contained GPU
-kernel output; it is not Mesa bit-exact because the GPU kernel uses GPU-safe RNG
-and Float32 math.
+CPU validation is bit-exact against the Mesa reference traces when `mojo_cpu` is
+run with `--rng python`. The same CPU executable can also run with `--rng gpu`,
+which switches only the injected RNG provider to the GPU-compatible LCG path.
+GPU validation is currently an aggregate smoke/fingerprint gate around the
+self-contained GPU kernel output.
 """
 from __future__ import annotations
 
@@ -56,7 +57,7 @@ def validate_cpu(skip_python_trace: bool) -> None:
         )
 
     run(["pixi", "run", "build-cpu"])
-    run([str(REPO_ROOT / "build" / "mojo_cpu")], stdout_path=MOJO_CPU_TRACE)
+    run([str(REPO_ROOT / "build" / "mojo_cpu"), "--rng", "python"], stdout_path=MOJO_CPU_TRACE)
     run(
         [
             "uv",
@@ -68,7 +69,7 @@ def validate_cpu(skip_python_trace: bool) -> None:
             str(MOJO_CPU_TRACE.relative_to(REPO_ROOT)),
         ]
     )
-    print("CPU validation PASS: mojo_cpu matches Mesa on tracked per-agent columns.")
+    print("CPU validation PASS: mojo_cpu --rng python matches Mesa on tracked per-agent columns.")
 
 
 def validate_gpu() -> None:

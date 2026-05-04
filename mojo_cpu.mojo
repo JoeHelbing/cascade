@@ -26,6 +26,7 @@ from std.python import Python, PythonObject
 from std.collections import List
 from std.sys import argv, has_accelerator
 from std.time import perf_counter_ns
+from std.math import log, sqrt
 
 
 # ============================================================
@@ -36,6 +37,9 @@ comptime ACTIVE: Int = 1
 comptime OPPOSE: Int = 2
 comptime JAILED: Int = 3
 comptime SECURITY_COND: Int = 4
+
+comptime RNG_PYTHON: Int = 0
+comptime RNG_GPU: Int = 1
 
 comptime DEFAULT_WIDTH: Int = 40
 comptime DEFAULT_HEIGHT: Int = 40
@@ -80,7 +84,102 @@ def _cond_name(c: Int) -> String:
 
 
 # ============================================================
-# Simulation state (one SimState = one Mesa ResistanceCascade run)
+# RNG provider seam -- the ONLY intentional CPU-mode switch
+# ============================================================
+#
+# `SimState` below owns all model behavior: agent initialization, neighbor
+# scans, condition updates, movement, recounting, revolution detection, and CSV
+# emission. Those operations must not fork into separate "Python simulation" and
+# "GPU simulation" implementations.
+#
+# The only switch is this provider object. `--rng python` delegates stochastic
+# draws to CPython's `random.Random`, preserving the Mesa reference stream for
+# bit-exact validation. `--rng gpu` uses the same LCG constants and Marsaglia
+# Gaussian routine as `mojo_gpu.mojo`, giving the CPU bridge a GPU-compatible
+# randomness mode while still exercising the exact same CPU simulation code.
+
+@always_inline
+def lcg_next(state: UInt64) -> UInt64:
+    return state * 6364136223846793005 + 1442695040888963407
+
+
+@always_inline
+def lcg_float(state: UInt64) -> Float64:
+    return Float64(Int64((state >> 33) & 0x7FFFFFFF)) / Float64(2147483648.0)
+
+
+@always_inline
+def lcg_int(state: UInt64, max_val: Int) -> Int:
+    return Int((state >> 33) % UInt64(max_val))
+
+
+struct RngProvider:
+    var mode: Int
+    var state: UInt64
+    var py_rng: PythonObject
+    var agent_state: List[UInt64]
+
+    def __init__(out self, seed: Int, mode: Int) raises:
+        self.mode = mode
+        self.state = UInt64(seed)
+        self.agent_state = List[UInt64]()
+        var random_mod = Python.import_module("random")
+        self.py_rng = random_mod.Random(seed)
+
+    def init_agent_streams(mut self, seed: Int, n_agents: Int):
+        # `--rng gpu` mirrors the GPU host initializer: a master LCG stream
+        # seeds one independent stream per agent. `--rng python` ignores these
+        # per-agent streams and continues to use CPython's global Random object,
+        # preserving Mesa call order. The simulation code still calls the same
+        # provider methods in both modes.
+        self.agent_state = List[UInt64]()
+        var master = UInt64(seed)
+        for i in range(n_agents):
+            master = lcg_next(master)
+            self.agent_state.append(master ^ UInt64(i * 2654435761))
+
+    def _next_for(mut self, agent_id: Int) -> UInt64:
+        if self.mode == RNG_GPU and len(self.agent_state) > agent_id:
+            var s = lcg_next(self.agent_state[agent_id])
+            self.agent_state[agent_id] = s
+            return s
+        self.state = lcg_next(self.state)
+        return self.state
+
+    def randrange(mut self, agent_id: Int, max_val: Int) raises -> Int:
+        if self.mode == RNG_PYTHON:
+            return Int(py=self.py_rng.randrange(max_val))
+        return lcg_int(self._next_for(agent_id), max_val)
+
+    def random(mut self, agent_id: Int) raises -> Float64:
+        if self.mode == RNG_PYTHON:
+            return Float64(py=self.py_rng.random())
+        return lcg_float(self._next_for(agent_id))
+
+    def gauss(mut self, agent_id: Int, mean: Float64, std: Float64) raises -> Float64:
+        if self.mode == RNG_PYTHON:
+            return Float64(py=self.py_rng.gauss(mean, std))
+
+        # GPU-compatible Marsaglia polar Gaussian. This mirrors
+        # `mojo_gpu.mojo::lcg_gauss_val`; it intentionally returns Float64 here
+        # because the CPU bridge stores model state in Float64, but the random
+        # stream and acceptance logic are the GPU-safe per-agent LCG path.
+        var v1: Float64
+        var rsq: Float64
+        while True:
+            var s1 = self._next_for(agent_id)
+            v1 = lcg_float(s1) * 2.0 - 1.0
+            var s2 = self._next_for(agent_id)
+            var v2 = lcg_float(s2) * 2.0 - 1.0
+            rsq = v1 * v1 + v2 * v2
+            if rsq < 1.0 and rsq > 0.0:
+                break
+        var fac = sqrt(-2.0 * log(rsq) / rsq)
+        return mean + std * v1 * fac
+
+
+# ============================================================
+# Simulation state (one SimState = one ResistanceCascade run)
 # ============================================================
 
 struct SimState:
@@ -128,14 +227,18 @@ struct SimState:
     var jail_count: Int
     var revolution: Bool
 
-    # Python handles
-    var py_rng: PythonObject
+    # RNG provider and Python math handles. The provider is the switchable
+    # dependency; the rest of the simulation code calls `self.rng.*` and does
+    # not know whether values come from Mesa-compatible Python RNG or the
+    # GPU-compatible LCG RNG.
+    var rng: RngProvider
     var py_math: PythonObject
     var py_builtins: PythonObject
 
     def __init__(
         out self,
         seed: Int,
+        rng_mode: Int,
         width: Int,
         height: Int,
         citizen_vision: Int,
@@ -150,8 +253,7 @@ struct SimState:
         standard_deviation: Float64,
         threshold: Float64,
     ) raises:
-        var random_mod = Python.import_module("random")
-        self.py_rng = random_mod.Random(seed)
+        self.rng = RngProvider(seed, rng_mode)
         self.py_math = Python.import_module("math")
         self.py_builtins = Python.import_module("builtins")
 
@@ -196,19 +298,23 @@ struct SimState:
         self.oppose_count = 0
         self.jail_count = 0
         self.revolution = False
+        self.rng.init_agent_streams(seed, self.num_agents)
 
         # ----- Citizen creation (Mesa model.py:118-152) -----
         # Order matters: x, y, private_preference, epsilon, then two thresholds.
+        # Every stochastic draw goes through the injected RNG provider. This is
+        # the same initialization code for both `--rng python` and `--rng gpu`;
+        # only the provider's random-value implementation changes.
         for i in range(self.num_citizens):
-            self.pos_x[i] = Int(py=self.py_rng.randrange(self.width))
-            self.pos_y[i] = Int(py=self.py_rng.randrange(self.height))
+            self.pos_x[i] = self.rng.randrange(i, self.width)
+            self.pos_y[i] = self.rng.randrange(i, self.height)
             self.is_citizen[i] = True
-            self.private_pref[i] = Float64(py=self.py_rng.gauss(pp_mean, standard_deviation))
-            var e = Float64(py=self.py_rng.gauss(0.0, model_eps))
+            self.private_pref[i] = self.rng.gauss(i, pp_mean, standard_deviation)
+            var e = self.rng.gauss(i, 0.0, model_eps)
             self.eps[i] = e
             self.eps_prob[i] = py_sigmoid(self.py_math, self.py_builtins, e)
-            var t1 = Float64(py=self.py_rng.gauss(threshold, e))
-            var t2 = Float64(py=self.py_rng.gauss(threshold, e))
+            var t1 = self.rng.gauss(i, threshold, e)
+            var t2 = self.rng.gauss(i, threshold, e)
             if t1 < t2:
                 self.oppose_th[i] = t1
                 self.active_th[i] = t2
@@ -217,12 +323,14 @@ struct SimState:
                 self.active_th[i] = t1
 
         # ----- Security creation (Mesa model.py:155-177) -----
+        # Same RNG-provider seam as citizen creation: one model implementation,
+        # two interchangeable sources of random values.
         for i in range(self.num_citizens, self.num_agents):
-            self.pos_x[i] = Int(py=self.py_rng.randrange(self.width))
-            self.pos_y[i] = Int(py=self.py_rng.randrange(self.height))
+            self.pos_x[i] = self.rng.randrange(i, self.width)
+            self.pos_y[i] = self.rng.randrange(i, self.height)
             self.is_citizen[i] = False
             self.cond[i] = SECURITY_COND
-            self.private_pref[i] = Float64(py=self.py_rng.gauss(pp_mean, standard_deviation))
+            self.private_pref[i] = self.rng.gauss(i, pp_mean, standard_deviation)
 
         # ----- Step-0 determine_condition (model.py:236-238) -----
         # Mesa runs determine_condition for every citizen in insertion order
@@ -337,7 +445,7 @@ struct SimState:
 
         # uniform(0, 1) == 0 + (1 - 0) * self.random() == self.random(). We
         # call random() directly -- same bits as Mesa's uniform call.
-        var rand_act = Float64(py=self.py_rng.random())
+        var rand_act = self.rng.random(i)
         self.activation_val[i] = py_sigmoid(self.py_math, self.py_builtins, opinion)
         # opinion - threshold and sigmoid(...) - arrest_prob all routed through
         # Python ops to stay bit-identical with Mesa.
@@ -373,7 +481,7 @@ struct SimState:
     #   idx=2  (dx=-1, dy=+1)    idx=5  (0,+1)    idx=8  (+1,+1)
     # random.choice over a 9-list is bit-equivalent to randrange(9) + index.
     def _random_move(mut self, i: Int) raises:
-        var idx = Int(py=self.py_rng.randrange(9))
+        var idx = self.rng.randrange(i, 9)
         var dx = idx // 3 - 1
         var dy = idx % 3 - 1
         self.pos_x[i] = (self.pos_x[i] + dx + self.width) % self.width
@@ -486,6 +594,7 @@ struct CpuConfig:
     var max_iters: Int
     var threshold: Float64
     var random_seed: Bool
+    var rng_mode: Int
 
     def __init__(out self):
         self.seeds = List[Int]()
@@ -507,12 +616,21 @@ struct CpuConfig:
         self.max_iters = 500
         self.threshold = 3.5
         self.random_seed = False
+        self.rng_mode = RNG_PYTHON
 
 
 def _parse_bool(value: String) -> Bool:
     if value == String("true") or value == String("True") or value == String("1") or value == String("yes") or value == String("on"):
         return True
     return False
+
+
+def _parse_rng_mode(value: String) raises -> Int:
+    if value == String("python") or value == String("mesa"):
+        return RNG_PYTHON
+    if value == String("gpu") or value == String("mojo"):
+        return RNG_GPU
+    raise Error(String("unknown --rng mode: ") + value + String(" (expected python or gpu)"))
 
 
 def _set_seeds(mut config: CpuConfig, value: String) raises:
@@ -532,13 +650,15 @@ def _parse_config(mut config: CpuConfig) raises:
             print("Parameters: --width --height --citizen-vision --citizen-density --security-density")
             print("  --security-vision --max-jail-term --movement --multiple-agents-per-cell")
             print("  --private-preference-distribution-mean --standard-deviation --epsilon")
-            print("  --max-iters --threshold --random-seed")
+            print("  --max-iters --threshold --random-seed --rng python|gpu")
             return
         if i + 1 >= len(args):
             raise Error(String("missing value for ") + key)
         var value = args[i + 1]
         if key == String("--seed") or key == String("--seeds"):
             _set_seeds(config, value)
+        elif key == String("--rng") or key == String("--rng-mode") or key == String("--rng_mode"):
+            config.rng_mode = _parse_rng_mode(value)
         elif key == String("--width"):
             config.width = Int(value)
         elif key == String("--height"):
@@ -594,6 +714,7 @@ def main() raises:
             seed = Int(py=random_mod.randrange(1000000))
         var sim = SimState(
             seed=seed,
+            rng_mode=config.rng_mode,
             width=config.width,
             height=config.height,
             citizen_vision=config.citizen_vision,

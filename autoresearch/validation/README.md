@@ -5,7 +5,9 @@ This directory is the canonical correctness gate for the implementation chain:
 ```text
 original_python/ Mesa reference
     ↓ bit-exact per-agent trace comparison
-mojo_cpu.mojo
+mojo_cpu.mojo --rng python
+    ↓ same CPU simulation, RNG provider switch only
+mojo_cpu.mojo --rng gpu
     ↓ aggregate GPU smoke/fingerprint gate
 mojo_gpu.mojo
 ```
@@ -35,7 +37,7 @@ uv run autoresearch/validation/run_pipeline.py --stage all
 | `compare_bitexact.py` | Bit-exact per-agent gate from Mesa parquet to `mojo_cpu.mojo` CSV output. |
 | `compare_mojo_cpu.py` | Secondary aggregate/model-trace helper; useful for summaries, not the primary bit-exact gate. |
 | `run_pipeline.py` | One public CLI for `cpu`, `gpu`, or `all` validation stages. |
-| `../../mojo_cpu.mojo` | CPU validation bridge; emits per-agent CSV to stdout. |
+| `../../mojo_cpu.mojo` | CPU validation bridge; emits per-agent CSV to stdout and supports `--rng python|gpu`. |
 | `../../mojo_gpu.mojo` | GPU throughput kernel; emits aggregate `Sim ...` lines. |
 
 ## CPU validation: Python -> Mojo CPU
@@ -46,7 +48,7 @@ The orchestrator runs these steps:
 ```bash
 uv run autoresearch/validation/run_python_trace.py
 pixi run build-cpu
-build/mojo_cpu > autoresearch/validation/mojo_cpu_bitexact.csv
+build/mojo_cpu --rng python > autoresearch/validation/mojo_cpu_bitexact.csv
 uv run autoresearch/validation/compare_bitexact.py \
   --mesa autoresearch/validation/python_trace.parquet \
   --mojo autoresearch/validation/mojo_cpu_bitexact.csv
@@ -60,11 +62,13 @@ PASS: mojo_cpu is bit-for-bit identical to Mesa on every tracked column.
 
 ## GPU validation: Mojo CPU boundary -> Mojo GPU
 
-GPU validation is currently less formal than CPU validation. `mojo_gpu.mojo` uses
-GPU-safe LCG/Float32 logic, so it is not bit-exact against the Mesa trace. The
-current gate is an aggregate smoke/fingerprint-style check: build/run the GPU
-binary, capture `mojo_gpu_output.txt`, and assert the hardcoded 45-run
-correctness grid produces 45 `Sim ...` lines.
+GPU validation is currently less formal than CPU validation. The intended bridge
+is `mojo_cpu.mojo --rng gpu`: the same CPU simulation implementation runs with
+only its RNG provider switched from Python/Mesa RNG to the GPU-compatible LCG
+provider. The current GPU gate then build/runs the GPU binary, captures
+`mojo_gpu_output.txt`, and asserts the hardcoded 45-run correctness grid
+produces 45 `Sim ...` lines. The next hardening step is exact aggregate
+comparison of `mojo_cpu --rng gpu` against `mojo_gpu` for the same cases.
 
 The hardcoded GPU grid is:
 

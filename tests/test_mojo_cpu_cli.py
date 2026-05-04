@@ -12,10 +12,10 @@ class MojoCpuCliTests(unittest.TestCase):
     def setUpClass(cls):
         subprocess.run(["pixi", "run", "build-cpu"], cwd=REPO_ROOT, check=True)
 
-    def test_accepts_original_model_parameters_from_cli(self):
-        # Arrange
+    def run_small_cpu(self, rng_mode: str) -> list[dict[str, str]]:
         cmd = [
             str(REPO_ROOT / "build" / "mojo_cpu"),
+            "--rng", rng_mode,
             "--width", "10",
             "--height", "10",
             "--citizen-vision", "1",
@@ -34,15 +34,33 @@ class MojoCpuCliTests(unittest.TestCase):
             "--random-seed", "false",
         ]
 
-        # Act
         result = subprocess.run(cmd, cwd=REPO_ROOT, check=True, text=True, capture_output=True)
+        data_lines = [line for line in result.stdout.splitlines() if not line.startswith("#")]
+        return list(csv.DictReader(data_lines))
+
+    def test_accepts_original_model_parameters_from_cli(self):
+        # Act
+        rows = self.run_small_cpu("python")
 
         # Assert
-        data_lines = [line for line in result.stdout.splitlines() if not line.startswith("#")]
-        rows = list(csv.DictReader(data_lines))
         self.assertEqual({row["seed"] for row in rows}, {"42"})
         self.assertEqual({row["step"] for row in rows}, {"0", "1"})
         self.assertEqual(len(rows), 20)  # 10 citizens x (initial row + one iteration)
+
+    def test_accepts_gpu_rng_switch_with_same_schema(self):
+        # Act
+        python_rows = self.run_small_cpu("python")
+        gpu_rows = self.run_small_cpu("gpu")
+
+        # Assert
+        self.assertEqual(list(python_rows[0].keys()), list(gpu_rows[0].keys()))
+        self.assertEqual({row["seed"] for row in gpu_rows}, {"42"})
+        self.assertEqual({row["step"] for row in gpu_rows}, {"0", "1"})
+        self.assertEqual(len(gpu_rows), 20)
+        self.assertNotEqual(
+            [(row["pos_x"], row["pos_y"], row["activation"]) for row in python_rows],
+            [(row["pos_x"], row["pos_y"], row["activation"]) for row in gpu_rows],
+        )
 
 
 if __name__ == "__main__":
