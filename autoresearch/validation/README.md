@@ -1,26 +1,35 @@
 # Validation Pipeline
 
-This directory is the canonical correctness gate for the implementation chain:
+This directory has one live validation-chain script:
+
+```text
+run_pipeline.py
+```
+
+Everything else in this directory is config (`picked_seeds.json`) or prose
+(`README.md`). Historical helper scripts are preserved under `archive/`.
+
+## Chain
 
 ```text
 original_python/ Mesa reference
-    ↓ bit-exact per-agent trace comparison
+    ↓ bit-exact per-agent trace comparison inside run_pipeline.py
 mojo_cpu.mojo --rng python
     ↓ same CPU simulation, RNG provider switch only
 mojo_cpu.mojo --rng gpu
-    ↓ aggregate GPU smoke/fingerprint gate
+    ↓ aggregate GPU smoke/fingerprint gate inside run_pipeline.py
 mojo_gpu.mojo
 ```
 
 ## Quick commands
 
 ```bash
-pixi run validate-cpu   # Mesa trace -> mojo_cpu trace -> bit-exact compare
+pixi run validate-cpu   # Mesa trace -> mojo_cpu --rng python -> bit-exact compare
 pixi run validate-gpu   # build/run mojo_gpu and check 45 aggregate Sim lines
 pixi run validate       # run both boundaries in order
 ```
 
-The direct orchestrator is:
+Direct form:
 
 ```bash
 uv run autoresearch/validation/run_pipeline.py --stage cpu
@@ -32,29 +41,23 @@ uv run autoresearch/validation/run_pipeline.py --stage all
 
 | Path | Purpose |
 |---|---|
-| `picked_seeds.json` | Canonical CPU validation seed/config set chosen for non-trivial dynamics. |
-| `run_python_trace.py` | Runs the original Mesa model and writes `python_trace.parquet` plus `python_model_trace.parquet`. |
-| `compare_bitexact.py` | Bit-exact per-agent gate from Mesa parquet to `mojo_cpu.mojo` CSV output. |
-| `compare_mojo_cpu.py` | Secondary aggregate/model-trace helper; useful for summaries, not the primary bit-exact gate. |
-| `run_pipeline.py` | One public CLI for `cpu`, `gpu`, or `all` validation stages. |
-| `../../mojo_cpu.mojo` | CPU validation bridge; emits per-agent CSV to stdout and supports `--rng python|gpu`. |
+| `run_pipeline.py` | The single validation-chain script. It generates Mesa traces, runs Mojo binaries, and performs the current comparisons. |
+| `picked_seeds.json` | Canonical CPU validation seed/config set. |
+| `README.md` | This guide. |
+| `../../mojo_cpu.mojo` | CPU simulation/validation bridge; emits per-agent CSV and supports `--rng python|gpu`. |
 | `../../mojo_gpu.mojo` | GPU throughput kernel; emits aggregate `Sim ...` lines. |
 
 ## CPU validation: Python -> Mojo CPU
 
-`mojo_cpu.mojo` is expected to be bit-exact against Mesa for the picked seed set.
-The orchestrator runs these steps:
+`run_pipeline.py --stage cpu` performs the former helper-script steps inline:
 
-```bash
-uv run autoresearch/validation/run_python_trace.py
-pixi run build-cpu
-build/mojo_cpu --rng python > autoresearch/validation/mojo_cpu_bitexact.csv
-uv run autoresearch/validation/compare_bitexact.py \
-  --mesa autoresearch/validation/python_trace.parquet \
-  --mojo autoresearch/validation/mojo_cpu_bitexact.csv
-```
+1. Run `original_python/resistance_cascade` for `picked_seeds.json`.
+2. Write `python_trace.parquet` and `python_model_trace.parquet`.
+3. Build `mojo_cpu.mojo`.
+4. Run `build/mojo_cpu --rng python > mojo_cpu_bitexact.csv`.
+5. Compare Mesa vs Mojo rows bit-for-bit on the tracked columns.
 
-Expected success text from the comparer:
+Expected success text:
 
 ```text
 PASS: mojo_cpu is bit-for-bit identical to Mesa on every tracked column.
@@ -65,34 +68,21 @@ PASS: mojo_cpu is bit-for-bit identical to Mesa on every tracked column.
 GPU validation is currently less formal than CPU validation. The intended bridge
 is `mojo_cpu.mojo --rng gpu`: the same CPU simulation implementation runs with
 only its RNG provider switched from Python/Mesa RNG to the GPU-compatible LCG
-provider. The current GPU gate then build/runs the GPU binary, captures
+provider. The current GPU gate build/runs the GPU binary, captures
 `mojo_gpu_output.txt`, and asserts the hardcoded 45-run correctness grid
-produces 45 `Sim ...` lines. The next hardening step is exact aggregate
-comparison of `mojo_cpu --rng gpu` against `mojo_gpu` for the same cases.
+produces 45 `Sim ...` lines.
 
-The hardcoded GPU grid is:
-
-- seeds: `42, 123, 456, 789, 1001`
-- epsilons: `0.2, 0.5, 1.0`
-- security densities: `0.0, 0.02, 0.05`
-- steps: `50`
+The next hardening step is exact aggregate comparison of `mojo_cpu --rng gpu`
+against `mojo_gpu` for the same cases.
 
 ## Archive
 
-Historical scripts and generated artifacts were moved to
-[`archive/`](archive/) so this directory only shows the live validation chain.
-Nothing was deleted.
-
-Examples in `archive/historical/` include old `cross_validate*.py`, replay,
-capture, seed-picking, oscillation, animation, and showboat helpers. They are
-kept for provenance and debugging and may contain stale embedded paths.
+Historical scripts and generated artifacts live under [`archive/`](archive/).
+Nothing was deleted. In particular, older split helper scripts such as
+`run_python_trace.py`, `compare_bitexact.py`, and `compare_mojo_cpu.py` are now
+archived; their live logic has been folded into `run_pipeline.py`.
 
 Generated local outputs such as `*.parquet`, `*.csv`, `*.html`, captures, and
 caches live under `archive/generated/` when preserved from old runs. New
-canonical validation runs write fresh artifacts back to this directory root.
-
-## Gap to close later
-
-A paper-grade GPU gate should emit a clean GPU trace dataset or stable aggregate
-fixture analogous to the CPU bit-exact trace path. Until then, preserve the
-boundary discipline: validate Mesa -> CPU first, then CPU -> GPU separately.
+validation runs may write fresh artifacts in this root, but they are ignored and
+can be moved back under `archive/generated/` when reviewing the tree.

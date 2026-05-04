@@ -39,7 +39,7 @@ pixi run validate       # both boundaries in order
 
 1. Run `original_python/` with the picked seeds — dump Mesa per-agent and per-step traces.
 2. Run `mojo_cpu.mojo` with the same seeds — emit per-agent CSV.
-3. Compare with `compare_bitexact.py`. Any divergence is a correctness bug in the CPU port.
+3. `autoresearch/validation/run_pipeline.py` compares Mesa and Mojo rows bit-for-bit. Any divergence is a correctness bug in the CPU port.
 4. Run `mojo_gpu.mojo` through the GPU aggregate gate.
 
 ## Quick start
