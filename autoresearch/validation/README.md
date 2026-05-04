@@ -12,12 +12,12 @@ Everything else in this directory is config (`picked_seeds.json`) or prose
 ## Chain
 
 ```text
-original_python/ Mesa reference
-    ↓ bit-exact per-agent trace comparison inside run_pipeline.py
+python-core-simulation/cascade_core.py
+    ↓ CSV trace comparison inside run_pipeline.py
 mojo_cpu.mojo --rng python
-    ↓ same CPU simulation, RNG provider switch only
+    ↓ same CLI, GPU-compatible RNG mode for no-security aggregate cases
 mojo_cpu.mojo --rng gpu
-    ↓ aggregate GPU smoke/fingerprint gate inside run_pipeline.py
+    ↓ aggregate comparison plus full GPU smoke/fingerprint gate
 mojo_gpu.mojo
 ```
 
@@ -47,33 +47,30 @@ uv run autoresearch/validation/run_pipeline.py --stage all
 | `../../mojo_cpu.mojo` | CPU simulation/validation bridge; emits per-agent CSV and supports `--rng python|gpu`. |
 | `../../mojo_gpu.mojo` | GPU throughput kernel; emits aggregate `Sim ...` lines. |
 
-## CPU validation: Python -> Mojo CPU
+## CPU validation: Python core -> Mojo CPU
 
-`run_pipeline.py --stage cpu` performs the former helper-script steps inline:
+`run_pipeline.py --stage cpu` now uses the checked-in regression tests for the Python core reference basis:
 
-1. Run `original_python/resistance_cascade` for `picked_seeds.json`.
-2. Write `python_trace.parquet` and `python_model_trace.parquet`.
-3. Build `mojo_cpu.mojo`.
-4. Run `build/mojo_cpu --rng python > mojo_cpu_bitexact.csv`.
-5. Compare Mesa vs Mojo rows bit-for-bit on the tracked columns.
+1. Run `tests.test_python_core_simulation` for core mechanics.
+2. Run `tests.test_mojo_cpu_cli`, which builds `mojo_cpu.mojo` and compares `--rng python` output against `cascade_core.ResistanceCascade` row by row with raw Float64 bit checks.
 
 Expected success text:
 
 ```text
-PASS: mojo_cpu is bit-for-bit identical to Mesa on every tracked column.
+CPU validation PASS: python-core and mojo_cpu CLI regression tests passed.
 ```
 
 ## GPU validation: Mojo CPU boundary -> Mojo GPU
 
-GPU validation is currently less formal than CPU validation. The intended bridge
-is `mojo_cpu.mojo --rng gpu`: the same CPU simulation implementation runs with
-only its RNG provider switched from Python/Mesa RNG to the GPU-compatible LCG
-provider. The current GPU gate build/runs the GPU binary, captures
-`mojo_gpu_output.txt`, and asserts the hardcoded 45-run correctness grid
-produces 45 `Sim ...` lines.
+GPU validation uses `mojo_cpu.mojo --rng gpu` as the CPU-side bridge for the GPU-compatible LCG stream. The GPU binary still runs its full hardcoded 45-case grid and must emit 45 `Sim ...` aggregate lines.
 
-The next hardening step is exact aggregate comparison of `mojo_cpu --rng gpu`
-against `mojo_gpu` for the same cases.
+Because `mojo_cpu.mojo` intentionally does not implement the security arrest path in GPU RNG mode, the CPU-vs-GPU aggregate comparison is limited to the 15 no-security cases (`security_density == 0.0`) that both implementations support. For those cases the gate checks citizen totals, revolution status, and active-count drift within the documented Float64-vs-Float32/kernel-layout tolerance.
+
+Expected success text:
+
+```text
+GPU validation PASS: mojo_cpu --rng gpu and mojo_gpu agree on no-security aggregate outcomes
+```
 
 ## Archive
 

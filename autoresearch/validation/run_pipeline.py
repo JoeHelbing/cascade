@@ -15,10 +15,13 @@ start here without chasing multiple validation entry points.
 from __future__ import annotations
 
 import argparse
+import csv
 import json
+import re
 import struct
 import subprocess
 import sys
+from dataclasses import dataclass
 from io import StringIO
 from pathlib import Path
 
@@ -31,15 +34,34 @@ VALIDATION_DIR = REPO_ROOT / "autoresearch" / "validation"
 DEFAULT_SEEDS = VALIDATION_DIR / "picked_seeds.json"
 PYTHON_TRACE = VALIDATION_DIR / "python_trace.parquet"
 PYTHON_MODEL_TRACE = VALIDATION_DIR / "python_model_trace.parquet"
+PYTHON_CORE_TRACE = VALIDATION_DIR / "python_core_trace.csv"
 MOJO_CPU_TRACE = VALIDATION_DIR / "mojo_cpu_bitexact.csv"
+MOJO_CPU_GPU_TRACE = VALIDATION_DIR / "mojo_cpu_gpu_bridge.csv"
 MOJO_GPU_OUTPUT = VALIDATION_DIR / "mojo_gpu_output.txt"
 
-sys.path.insert(0, str(REPO_ROOT / "original_python"))
-from resistance_cascade.model import ResistanceCascade  # noqa: E402  # pyright: ignore[reportMissingImports]
+sys.path.insert(0, str(REPO_ROOT / "python-core-simulation"))
+from cascade_core import ResistanceCascade  # noqa: E402  # pyright: ignore[reportMissingImports]
 
 FLOAT_COLS = ["opinion", "activation", "active_level", "oppose_level"]
 INT_COLS = ["pos_x", "pos_y", "jail_sentence"]
 STR_COLS = ["condition"]
+GPU_SEEDS = [42, 123, 456, 789, 1001]
+GPU_EPSILONS = [0.2, 0.5, 1.0]
+GPU_SECURITY_DENSITIES = [0.0, 0.02, 0.05]
+GPU_NO_SECURITY_ACTIVE_TOLERANCE = 35
+
+
+@dataclass(frozen=True)
+class AggregateRow:
+    sim_id: int
+    seed: int
+    epsilon: float
+    security_density: float
+    active: int
+    support: int
+    oppose: int
+    jail: int
+    revolution: bool
 
 
 def run(cmd: list[str], *, stdout_path: Path | None = None) -> subprocess.CompletedProcess[str]:
@@ -62,52 +84,88 @@ def run(cmd: list[str], *, stdout_path: Path | None = None) -> subprocess.Comple
     return result
 
 
-def run_python_seed(seed: int, params: dict, steps: int) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Run one original Mesa seed and return agent/model trace frames."""
-    model = ResistanceCascade(seed=seed, **params)
-    for _ in range(steps):
-        if not model.running:
-            break
-        model.step()
-
-    agent_df = model.datacollector.get_agent_vars_dataframe().reset_index()
-    model_df = model.datacollector.get_model_vars_dataframe().reset_index().rename(columns={"index": "Step"})
-    agent_df["seed"] = seed
-    model_df["seed"] = seed
-
-    if "pos" in agent_df.columns:
-        agent_df["pos_x"] = agent_df["pos"].apply(lambda p: p[0] if p is not None else -1)
-        agent_df["pos_y"] = agent_df["pos"].apply(lambda p: p[1] if p is not None else -1)
-        agent_df = agent_df.drop(columns=["pos"])
-
-    agent_df["kind"] = agent_df.apply(
-        lambda row: "citizen" if row.get("active_threshold") is not None else "security",
-        axis=1,
-    )
-    return agent_df, model_df
+def _cpu_param_args(params: dict, steps: int, seeds: list[int]) -> list[str]:
+    return [
+        "--seed", ",".join(str(seed) for seed in seeds),
+        "--width", str(params["width"]),
+        "--height", str(params["height"]),
+        "--citizen-vision", str(params["citizen_vision"]),
+        "--citizen-density", str(params["citizen_density"]),
+        "--security-density", str(params["security_density"]),
+        "--security-vision", str(params["security_vision"]),
+        "--max-jail-term", str(params["max_jail_term"]),
+        "--movement", str(params["movement"]).lower(),
+        "--multiple-agents-per-cell", str(params.get("multiple_agents_per_cell", True)).lower(),
+        "--private-preference-distribution-mean", str(params["private_preference_distribution_mean"]),
+        "--standard-deviation", str(params["standard_deviation"]),
+        "--epsilon", str(params["epsilon"]),
+        "--threshold", str(params["threshold"]),
+        "--max-iters", str(steps),
+        "--random-seed", "false",
+    ]
 
 
-def generate_python_trace(seeds_path: Path, out: Path, out_model: Path) -> None:
-    """Generate the Mesa reference traces formerly produced by run_python_trace.py."""
+def generate_python_core_trace(seeds_path: Path, out: Path) -> None:
+    """Generate the python-core reference CSV that mojo_cpu --rng python must emit."""
     cfg = json.loads(seeds_path.read_text())
     params = cfg["params"]
     steps = cfg["steps"]
     seeds = [p["seed"] for p in cfg["picked"]]
 
-    agent_dfs: list[pd.DataFrame] = []
-    model_dfs: list[pd.DataFrame] = []
-    for seed in seeds:
-        print(f"running seed={seed}")
-        agents, model = run_python_seed(seed, params, steps)
-        agent_dfs.append(agents)
-        model_dfs.append(model)
+    with out.open("w", newline="") as output:
+        wrote_header = False
+        for seed in seeds:
+            print(f"running python-core seed={seed}")
+            sim = ResistanceCascade(
+                width=params["width"],
+                height=params["height"],
+                citizen_vision=params["citizen_vision"],
+                citizen_density=params["citizen_density"],
+                security_density=params["security_density"],
+                security_vision=params["security_vision"],
+                max_jail_term=params["max_jail_term"],
+                movement=params["movement"],
+                private_preference_distribution_mean=params["private_preference_distribution_mean"],
+                standard_deviation=params["standard_deviation"],
+                epsilon=params["epsilon"],
+                threshold=params["threshold"],
+                max_iters=steps,
+                seed=seed,
+                collect_trace=True,
+            )
+            sim.run(steps=steps)
+            rows = [dict((field, getattr(row, field)) for field in row.__dataclass_fields__) for row in sim.trace]
+            writer = csv.DictWriter(output, fieldnames=list(rows[0].keys()))
+            if not wrote_header:
+                writer.writeheader()
+                wrote_header = True
+            writer.writerows(rows)
+    print(f"wrote python-core trace to {out.relative_to(REPO_ROOT)}")
 
-    agent_all = pd.concat(agent_dfs, ignore_index=True)
-    model_all = pd.concat(model_dfs, ignore_index=True)
-    pq.write_table(pa.Table.from_pandas(agent_all), out)
-    pq.write_table(pa.Table.from_pandas(model_all), out_model)
-    print(f"wrote {len(agent_all)} agent-step rows to {out}")
-    print(f"wrote {len(model_all)} model-step rows to {out_model}")
+
+def _csv_payload(path: Path) -> str:
+    return "\n".join(line for line in path.read_text().splitlines() if line and not line.startswith("#")) + "\n"
+
+
+def compare_python_core_csv(expected_path: Path, mojo_path: Path) -> None:
+    expected = _csv_payload(expected_path)
+    actual = _csv_payload(mojo_path)
+    if expected == actual:
+        print("PASS: mojo_cpu --rng python is byte-identical to python-core CSV output.")
+        return
+
+    expected_lines = expected.splitlines()
+    actual_lines = actual.splitlines()
+    for i, (expected_line, actual_line) in enumerate(zip(expected_lines, actual_lines, strict=False), start=1):
+        if expected_line != actual_line:
+            raise SystemExit(
+                "FAIL: mojo_cpu --rng python differs from python-core CSV output "
+                f"at line {i}.\nexpected: {expected_line}\nactual:   {actual_line}"
+            )
+    raise SystemExit(
+        "FAIL: mojo_cpu --rng python differs from python-core CSV output: "
+        f"expected {len(expected_lines)} lines, got {len(actual_lines)} lines."
+    )
 
 
 def float_bits(x: float) -> int:
@@ -120,87 +178,154 @@ def load_mojo_csv(path: Path) -> pd.DataFrame:
     return df[df["condition"] != "Security"].copy()
 
 
-def load_mesa_parquet(path: Path) -> pd.DataFrame:
-    df = pd.read_parquet(path)
-    df = df[df["kind"] == "citizen"].copy()
-    df = df.rename(columns={"Step": "step", "AgentID": "agent_id"})
-    keep = ["seed", "step", "agent_id", "condition"] + INT_COLS + FLOAT_COLS
-    return df[keep]
+_GPU_SIM_RE = re.compile(
+    r"^Sim\s+(?P<sim_id>\d+)\s+"
+    r"seed=\s*(?P<seed>\d+)\s+"
+    r"eps=\s*(?P<epsilon>[0-9.]+)\s+"
+    r"sd=\s*(?P<security_density>[0-9.]+)\s+"
+    r"active=\s*(?P<active>\d+)\s+"
+    r"support=\s*(?P<support>\d+)\s+"
+    r"oppose=\s*(?P<oppose>\d+)\s+"
+    r"jail=\s*(?P<jail>\d+)\s+"
+    r"rev=\s*(?P<revolution>True|False)"
+)
 
 
-def compare_bitexact(mojo_path: Path, mesa_path: Path) -> None:
-    """Bit-exact Mesa-vs-Mojo CPU comparison formerly in compare_bitexact.py."""
-    mojo = load_mojo_csv(mojo_path)
-    mesa = load_mesa_parquet(mesa_path)
-    print(f"mojo rows: {len(mojo)}")
-    print(f"mesa rows: {len(mesa)}")
+def parse_gpu_sim_lines(output: str) -> list[AggregateRow]:
+    rows: list[AggregateRow] = []
+    for line in output.splitlines():
+        match = _GPU_SIM_RE.match(line.strip())
+        if not match:
+            continue
+        groups = match.groupdict()
+        rows.append(
+            AggregateRow(
+                sim_id=int(groups["sim_id"]),
+                seed=int(groups["seed"]),
+                epsilon=float(groups["epsilon"]),
+                security_density=float(groups["security_density"]),
+                active=int(groups["active"]),
+                support=int(groups["support"]),
+                oppose=int(groups["oppose"]),
+                jail=int(groups["jail"]),
+                revolution=groups["revolution"] == "True",
+            )
+        )
+    return rows
 
-    key = ["seed", "step", "agent_id"]
-    merged = mesa.merge(mojo, on=key, how="inner", suffixes=("_mesa", "_mojo"))
-    mesa_only = len(mesa) - len(merged)
-    mojo_only = len(mojo) - len(merged)
 
-    print()
-    print(f"rows joined on (seed, step, agent_id): {len(merged)}")
-    print(f"mesa-only rows: {mesa_only}")
-    print(f"mojo-only rows: {mojo_only}")
-    print()
-    print("Per-column mismatches:")
-    print("-" * 60)
+def load_mojo_cpu_gpu_aggregate(
+    path: Path,
+    *,
+    sim_id: int,
+    seed: int,
+    epsilon: float,
+    security_density: float,
+) -> AggregateRow:
+    rows = [line for line in path.read_text().splitlines() if line and not line.startswith("#")]
+    reader = csv.DictReader(rows)
+    data = [row for row in reader if row.get("agent_type") == "Citizen"]
+    if not data:
+        raise SystemExit(f"No citizen rows found in {path.relative_to(REPO_ROOT)}")
+    last_step = max(int(row["step"]) for row in data)
+    final = [row for row in data if int(row["step"]) == last_step]
+    active = sum(1 for row in final if row["condition"] == "Active")
+    support = sum(1 for row in final if row["condition"] == "Support")
+    oppose = sum(1 for row in final if row["condition"] == "Oppose")
+    jail = sum(1 for row in final if row["condition"] == "Jailed")
+    revolution = (active + jail) / len(final) >= 0.95
+    return AggregateRow(sim_id, seed, epsilon, security_density, active, support, oppose, jail, revolution)
 
-    fail = False
-    for col in INT_COLS + STR_COLS:
-        mismatch = int((merged[f"{col}_mesa"] != merged[f"{col}_mojo"]).sum())
-        print(f"  {'OK   ' if mismatch == 0 else 'FAIL '} {col:<18} mismatches: {mismatch}")
-        fail = fail or mismatch != 0
 
-    for col in FLOAT_COLS:
-        mesa_bits = merged[f"{col}_mesa"].apply(float_bits)
-        mojo_bits = merged[f"{col}_mojo"].apply(float_bits)
-        mismatches = mesa_bits != mojo_bits
-        mismatch = int(mismatches.sum())
-        print(f"  {'OK   ' if mismatch == 0 else 'FAIL '} {col:<18} mismatches: {mismatch}")
-        if mismatch:
-            print("    sample diff rows:")
-            print(merged[mismatches].head(3)[key + [f"{col}_mesa", f"{col}_mojo"]].to_string(index=False))
-        fail = fail or mismatch != 0
+def _run_cpu_gpu_case(sim_id: int, seed: int, epsilon: float, security_density: float) -> AggregateRow:
+    run(
+        [
+            str(REPO_ROOT / "build" / "mojo_cpu"),
+            "--rng", "gpu",
+            "--width", "33",
+            "--height", "33",
+            "--citizen-density", "0.7",
+            "--security-density", str(security_density),
+            "--epsilon", str(epsilon),
+            "--threshold", "2.94444",
+            "--max-iters", "50",
+            "--seed", str(seed),
+            "--movement", "true",
+            "--random-seed", "false",
+        ],
+        stdout_path=MOJO_CPU_GPU_TRACE,
+    )
+    return load_mojo_cpu_gpu_aggregate(
+        MOJO_CPU_GPU_TRACE,
+        sim_id=sim_id,
+        seed=seed,
+        epsilon=epsilon,
+        security_density=security_density,
+    )
 
-    print()
-    if mesa_only == 0 and mojo_only == 0 and not fail:
-        print("PASS: mojo_cpu is bit-for-bit identical to Mesa on every tracked column.")
-        return
-    raise SystemExit("FAIL: mojo_cpu and Mesa diverge; see details above.")
+
+def compare_cpu_gpu_aggregates(cpu_rows: list[AggregateRow], gpu_rows: list[AggregateRow]) -> None:
+    gpu_by_key = {(row.seed, row.epsilon, row.security_density): row for row in gpu_rows}
+    failures: list[str] = []
+    for cpu in cpu_rows:
+        gpu = gpu_by_key.get((cpu.seed, cpu.epsilon, cpu.security_density))
+        if gpu is None:
+            failures.append(f"missing GPU row for seed={cpu.seed} eps={cpu.epsilon} sd={cpu.security_density}")
+            continue
+        if cpu.active + cpu.support + cpu.oppose + cpu.jail != gpu.active + gpu.support + gpu.oppose + gpu.jail:
+            failures.append(f"citizen total mismatch for seed={cpu.seed} eps={cpu.epsilon}: CPU={cpu} GPU={gpu}")
+        if cpu.revolution != gpu.revolution:
+            failures.append(f"revolution mismatch for seed={cpu.seed} eps={cpu.epsilon}: CPU={cpu.revolution} GPU={gpu.revolution}")
+        if abs(cpu.active - gpu.active) > GPU_NO_SECURITY_ACTIVE_TOLERANCE:
+            failures.append(
+                f"active count drift exceeds tolerance for seed={cpu.seed} eps={cpu.epsilon}: "
+                f"CPU={cpu.active} GPU={gpu.active} tolerance={GPU_NO_SECURITY_ACTIVE_TOLERANCE}"
+            )
+    if failures:
+        raise SystemExit("GPU validation FAIL:\n" + "\n".join(failures))
+    print(
+        "GPU validation PASS: mojo_cpu --rng gpu and mojo_gpu agree on no-security "
+        f"aggregate outcomes ({len(cpu_rows)} cases, active tolerance ±{GPU_NO_SECURITY_ACTIVE_TOLERANCE})."
+    )
 
 
 def validate_cpu(args: argparse.Namespace) -> None:
-    """Validate mojo_cpu.mojo --rng python against original Python/Mesa."""
-    print("\n=== CPU validation: original_python -> mojo_cpu --rng python ===", flush=True)
-    if not args.skip_python_trace:
-        generate_python_trace(args.seeds, PYTHON_TRACE, PYTHON_MODEL_TRACE)
-    elif not PYTHON_TRACE.exists():
-        raise SystemExit(
-            "--skip-python-trace was set, but "
-            f"{PYTHON_TRACE.relative_to(REPO_ROOT)} does not exist."
-        )
-
-    run(["pixi", "run", "build-cpu"])
-    run([str(REPO_ROOT / "build" / "mojo_cpu"), "--rng", "python"], stdout_path=MOJO_CPU_TRACE)
-    compare_bitexact(MOJO_CPU_TRACE, PYTHON_TRACE)
-    print("CPU validation PASS: mojo_cpu --rng python matches Mesa on tracked per-agent columns.")
+    """Validate mojo_cpu.mojo --rng python against python-core-simulation tests."""
+    print("\n=== CPU validation: python-core-simulation -> mojo_cpu --rng python ===", flush=True)
+    run([
+        "pixi",
+        "run",
+        "python",
+        "-m",
+        "unittest",
+        "tests.test_python_core_simulation",
+        "tests.test_mojo_cpu_cli",
+    ])
+    print("CPU validation PASS: python-core and mojo_cpu CLI regression tests passed.")
 
 
 def validate_gpu() -> None:
-    """Run the current GPU aggregate validation/smoke gate."""
+    """Run the CPU-GPU aggregate validation gate."""
     print("\n=== GPU validation: mojo_cpu --rng gpu boundary -> mojo_gpu aggregate gate ===", flush=True)
+    run(["pixi", "run", "build-cpu"])
     run(["pixi", "run", "build-gpu"])
     result = run([str(REPO_ROOT / "build" / "mojo_gpu")], stdout_path=MOJO_GPU_OUTPUT)
-    sim_lines = [line for line in result.stdout.splitlines() if line.startswith("Sim ")]
-    if len(sim_lines) != 45:
+    gpu_rows = parse_gpu_sim_lines(result.stdout)
+    if len(gpu_rows) != 45:
         raise SystemExit(
-            f"GPU validation FAIL: expected 45 'Sim ...' lines, got {len(sim_lines)}. "
+            f"GPU validation FAIL: expected 45 'Sim ...' lines, got {len(gpu_rows)}. "
             f"See {MOJO_GPU_OUTPUT.relative_to(REPO_ROOT)}."
         )
-    print("GPU validation PASS: produced the expected 45 aggregate simulation lines.")
+
+    cpu_rows: list[AggregateRow] = []
+    sim_id = 0
+    for seed in GPU_SEEDS:
+        for epsilon in GPU_EPSILONS:
+            for security_density in GPU_SECURITY_DENSITIES:
+                if security_density == 0.0:
+                    cpu_rows.append(_run_cpu_gpu_case(sim_id, seed, epsilon, security_density))
+                sim_id += 1
+    compare_cpu_gpu_aggregates(cpu_rows, gpu_rows)
 
 
 def parse_args() -> argparse.Namespace:
