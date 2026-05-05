@@ -78,6 +78,41 @@ class ValidationPipelineTests(unittest.TestCase):
         self.assertEqual([(chunk.seed, len(chunk.rows)) for chunk in chunks], [(10, 2), (20, 1)])
         self.assertEqual(chunks[1].rows[0]["x"], "3")
 
+    def test_parse_gpu_trace_lines_extracts_per_agent_state_rows(self):
+        # Arrange
+        output = "\n".join(
+            [
+                "TRACE,0,16,0.5,0.0,0,0,1,2,Support",
+                "TRACE,0,16,0.5,0.0,1,0,2,2,Active",
+            ]
+        )
+
+        # Act
+        chunks = run_pipeline.parse_gpu_trace_lines(output)
+
+        # Assert
+        self.assertEqual(len(chunks), 1)
+        self.assertEqual(chunks[0].seed, 16)
+        self.assertEqual(chunks[0].rows[1]["condition"], "Active")
+
+    def test_state_trace_parquet_sha_matches_for_identical_cpu_gpu_rows(self):
+        # Arrange
+        rows = [
+            {"step": "0", "agent_id": "0", "agent_type": "Citizen", "x": "1", "y": "2", "condition": "Support"},
+            {"step": "1", "agent_id": "0", "agent_type": "Citizen", "x": "2", "y": "2", "condition": "Active"},
+        ]
+        chunk = run_pipeline.TraceChunk(sim_id=0, seed=16, epsilon=0.5, security_density=0.0, rows=rows)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cpu_path = Path(tmpdir) / "cpu.parquet"
+            gpu_path = Path(tmpdir) / "gpu.parquet"
+
+            # Act
+            cpu_sha = run_pipeline.write_state_trace_parquet(cpu_path, [chunk])
+            gpu_sha = run_pipeline.write_state_trace_parquet(gpu_path, [chunk])
+
+            # Assert
+            self.assertEqual(cpu_sha, gpu_sha)
+
     def test_parse_gpu_sim_lines_extracts_aggregate_metrics(self):
         # Arrange
         output = """

@@ -26,7 +26,7 @@ from std.python import Python, PythonObject
 from std.collections import List
 from std.sys import argv, has_accelerator
 from std.time import perf_counter_ns
-from std.math import log, sqrt
+from std.math import exp, log, sqrt
 
 
 # ============================================================
@@ -337,9 +337,10 @@ struct SimState:
         # before the first schedule.step(). This consumes num_citizens
         # uniform(0,1) draws and populates _update_condition / activation /
         # etc., but condition remains "Support" since advance() has not run.
-        for i in range(self.num_citizens):
-            self.did_flip[i] = False
-            self._determine_condition(i)
+        if self.rng.mode == RNG_PYTHON:
+            for i in range(self.num_citizens):
+                self.did_flip[i] = False
+                self._determine_condition(i)
 
 
     # Is (bx, by) within Chebyshev `radius` of (ax, ay) on a 40x40 torus?
@@ -375,7 +376,7 @@ struct SimState:
             # include_center=False, so agents in the same cell as self are NOT
             # in self.neighbors. Excluding them here keeps vision counts
             # identical to Mesa's count_neigbhors loop.
-            if bx == ax and by == ay:
+            if self.rng.mode == RNG_PYTHON and bx == ax and by == ay:
                 continue
             var vision = self.citizen_vision if self.is_citizen[i] else self.security_vision
             if not self._in_vision(ax, ay, bx, by, vision):
@@ -391,6 +392,34 @@ struct SimState:
                 # JAILED citizens are not counted (matches Mesa).
             else:
                 security += 1
+
+        if self.rng.mode == RNG_GPU:
+            var ep32 = Float32(self.eps[i])
+            var ep_prob32 = Float32(self.eps_prob[i])
+            var active_ratio32 = Float32(actives + opposed) / Float32(support)
+            var perception32 = (Float32(actives) + Float32(opposed) * ep_prob32) ** (1.0 / (ep32 * ep32 + 1.0))
+            var arrest_prob32 = 1.0 - exp(Float32(-2.3) * Float32(security) / Float32(actives) * 2.0 * ep_prob32)
+            var opinion32 = -Float32(self.private_pref[i]) + perception32 * active_ratio32
+            var rand_act32 = Float32(self.rng.random(i))
+            var activation32 = 1.0 / (1.0 + exp(-opinion32))
+            var active_level32 = 1.0 / (1.0 + exp(-(opinion32 - Float32(self.active_th[i])))) - arrest_prob32
+            var oppose_level32 = 1.0 / (1.0 + exp(-(opinion32 - Float32(self.oppose_th[i])))) - arrest_prob32
+            self.perception[i] = Float64(perception32)
+            self.arrest_prob[i] = Float64(arrest_prob32)
+            self.opinion_val[i] = Float64(opinion32)
+            self.activation_val[i] = Float64(activation32)
+            self.active_level[i] = Float64(active_level32)
+            self.oppose_level[i] = Float64(oppose_level32)
+            if active_level32 > rand_act32:
+                if self.next_cond[i] != ACTIVE:
+                    self.did_flip[i] = True
+                    self.ever_flip[i] = True
+                self.next_cond[i] = ACTIVE
+            elif oppose_level32 > rand_act32:
+                self.next_cond[i] = OPPOSE
+            else:
+                self.next_cond[i] = SUPPORT
+            return
 
         # Route via Python builtins.float ops: Mojo's compiler sometimes
         # fuses/reorders these when they appear in hot loops, diverging from

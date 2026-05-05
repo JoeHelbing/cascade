@@ -38,6 +38,10 @@ PYTHON_MODEL_TRACE = VALIDATION_DIR / "python_model_trace.parquet"
 PYTHON_CORE_TRACE = VALIDATION_DIR / "python_core_trace.parquet"
 MOJO_CPU_TRACE = VALIDATION_DIR / "mojo_cpu_python_rng_trace.parquet"
 MOJO_CPU_GPU_TRACE = VALIDATION_DIR / "mojo_cpu_gpu_rng_trace.parquet"
+PYTHON_CORE_STATE_TRACE = VALIDATION_DIR / "python_core_state_trace.parquet"
+MOJO_CPU_PYTHON_STATE_TRACE = VALIDATION_DIR / "mojo_cpu_python_rng_state_trace.parquet"
+MOJO_CPU_MOJO_STATE_TRACE = VALIDATION_DIR / "mojo_cpu_mojo_rng_state_trace.parquet"
+MOJO_GPU_STATE_TRACE = VALIDATION_DIR / "mojo_gpu_state_trace.parquet"
 MOJO_CPU_GPU_AGGREGATE = VALIDATION_DIR / "mojo_cpu_gpu_rng_aggregate.parquet"
 MOJO_GPU_AGGREGATE = VALIDATION_DIR / "mojo_gpu_aggregate.parquet"
 MOJO_GPU_OUTPUT = VALIDATION_DIR / "mojo_gpu_output.txt"
@@ -78,6 +82,11 @@ GPU_SEEDS = [42, 123, 456, 789, 1001]
 GPU_EPSILONS = [0.2, 0.5, 1.0]
 GPU_SECURITY_DENSITIES = [0.0, 0.02, 0.05]
 GPU_NO_SECURITY_ACTIVE_TOLERANCE = 35
+GPU_TRACE_VALIDATION_SEED = 16
+GPU_TRACE_VALIDATION_EPSILON = 0.5
+GPU_TRACE_VALIDATION_SECURITY_DENSITY = 0.0
+GPU_TRACE_VALIDATION_THRESHOLD = 2.5
+GPU_TRACE_VALIDATION_STEPS = 500
 
 
 @dataclass(frozen=True)
@@ -282,6 +291,71 @@ def split_mojo_trace_output_by_seed(
     ]
 
 
+def _state_trace_schema() -> pa.Schema:
+    return pa.schema(
+        [
+            pa.field("sim_id", pa.int64()),
+            pa.field("seed", pa.int64()),
+            pa.field("epsilon_config", pa.float64()),
+            pa.field("security_density_config", pa.float64()),
+            pa.field("step", pa.int64()),
+            pa.field("agent_id", pa.int64()),
+            pa.field("agent_type", pa.string()),
+            pa.field("x", pa.int64()),
+            pa.field("y", pa.int64()),
+            pa.field("condition", pa.string()),
+        ]
+    )
+
+
+def pad_state_trace_chunk(chunk: TraceChunk, final_step: int) -> TraceChunk:
+    rows = list(chunk.rows)
+    if not rows:
+        return chunk
+    max_step = max(int(row["step"]) for row in rows)
+    if max_step >= final_step:
+        return chunk
+    final_rows = [row for row in rows if int(row["step"]) == max_step]
+    for step in range(max_step + 1, final_step + 1):
+        for row in final_rows:
+            padded = dict(row)
+            padded["step"] = str(step)
+            rows.append(padded)
+    return TraceChunk(
+        sim_id=chunk.sim_id,
+        seed=chunk.seed,
+        epsilon=chunk.epsilon,
+        security_density=chunk.security_density,
+        rows=rows,
+    )
+
+
+def write_state_trace_parquet(path: Path, chunks: list[TraceChunk]) -> str:
+    path.unlink(missing_ok=True)
+    rows: list[dict] = []
+    for chunk in chunks:
+        for row in chunk.rows:
+            rows.append(
+                {
+                    "sim_id": chunk.sim_id,
+                    "seed": chunk.seed,
+                    "epsilon_config": chunk.epsilon,
+                    "security_density_config": chunk.security_density,
+                    "step": _as_int(row.get("step")),
+                    "agent_id": _as_int(row.get("agent_id")),
+                    "agent_type": str(row.get("agent_type", "Citizen")),
+                    "x": _as_int(row.get("x")),
+                    "y": _as_int(row.get("y")),
+                    "condition": str(row.get("condition")),
+                }
+            )
+    table = pa.Table.from_pylist(rows, schema=_state_trace_schema())
+    pq.write_table(table, path, compression="NONE", use_dictionary=False, write_statistics=False)
+    digest = sha256_file(path)
+    print(f"wrote {display_path(path)} sha256={digest}")
+    return digest
+
+
 def write_aggregate_parquet(path: Path, rows: list[AggregateRow]) -> str:
     path.unlink(missing_ok=True)
     table = pa.Table.from_pylist(
@@ -432,6 +506,29 @@ _GPU_SIM_RE = re.compile(
     r"jail=\s*(?P<jail>\d+)\s+"
     r"rev=\s*(?P<revolution>True|False)"
 )
+
+
+def parse_gpu_trace_lines(output: str) -> list[TraceChunk]:
+    rows_by_key: dict[tuple[int, int, float, float], list[dict]] = {}
+    for line in output.splitlines():
+        if not line.startswith("TRACE,"):
+            continue
+        _, sim_id_s, seed_s, epsilon_s, security_density_s, step_s, agent_id_s, x_s, y_s, condition = line.split(",", 9)
+        key = (int(sim_id_s), int(seed_s), float(epsilon_s), float(security_density_s))
+        rows_by_key.setdefault(key, []).append(
+            {
+                "step": step_s,
+                "agent_id": agent_id_s,
+                "agent_type": "Citizen",
+                "x": x_s,
+                "y": y_s,
+                "condition": condition,
+            }
+        )
+    return [
+        TraceChunk(sim_id=sim_id, seed=seed, epsilon=epsilon, security_density=security_density, rows=rows)
+        for (sim_id, seed, epsilon, security_density), rows in sorted(rows_by_key.items())
+    ]
 
 
 def parse_gpu_sim_lines(output: str) -> list[AggregateRow]:
@@ -605,11 +702,114 @@ def validate_cpu(args: argparse.Namespace) -> dict[str, str]:
     }
 
 
+def _gpu_trace_params() -> dict:
+    return {
+        "width": 33,
+        "height": 33,
+        "citizen_vision": 7,
+        "citizen_density": 0.7,
+        "security_density": GPU_TRACE_VALIDATION_SECURITY_DENSITY,
+        "security_vision": 7,
+        "max_jail_term": 100,
+        "movement": True,
+        "multiple_agents_per_cell": True,
+        "private_preference_distribution_mean": 0.0,
+        "standard_deviation": 1.0,
+        "epsilon": GPU_TRACE_VALIDATION_EPSILON,
+        "threshold": GPU_TRACE_VALIDATION_THRESHOLD,
+        "max_iters": GPU_TRACE_VALIDATION_STEPS,
+    }
+
+
+def _run_python_state_trace_case() -> TraceChunk:
+    params = _gpu_trace_params()
+    sim = ResistanceCascade(
+        width=params["width"],
+        height=params["height"],
+        citizen_vision=params["citizen_vision"],
+        citizen_density=params["citizen_density"],
+        security_density=params["security_density"],
+        security_vision=params["security_vision"],
+        max_jail_term=params["max_jail_term"],
+        movement=params["movement"],
+        private_preference_distribution_mean=params["private_preference_distribution_mean"],
+        standard_deviation=params["standard_deviation"],
+        epsilon=params["epsilon"],
+        threshold=params["threshold"],
+        max_iters=params["max_iters"],
+        seed=GPU_TRACE_VALIDATION_SEED,
+        collect_trace=True,
+    )
+    sim.run(steps=params["max_iters"])
+    rows = [dict((field, getattr(row, field)) for field in TRACE_FIELDS) for row in sim.trace]
+    return pad_state_trace_chunk(
+        TraceChunk(
+            sim_id=0,
+            seed=GPU_TRACE_VALIDATION_SEED,
+            epsilon=GPU_TRACE_VALIDATION_EPSILON,
+            security_density=GPU_TRACE_VALIDATION_SECURITY_DENSITY,
+            rows=rows,
+        ),
+        GPU_TRACE_VALIDATION_STEPS,
+    )
+
+
+def _run_mojo_cpu_state_trace_case(rng_mode: str) -> TraceChunk:
+    params = _gpu_trace_params()
+    result = run_capture(
+        [
+            str(REPO_ROOT / "build" / "mojo_cpu"),
+            "--rng", rng_mode,
+            *_cpu_param_args(params, params["max_iters"], [GPU_TRACE_VALIDATION_SEED]),
+        ]
+    )
+    chunk = split_mojo_trace_output_by_seed(
+        result.stdout,
+        [GPU_TRACE_VALIDATION_SEED],
+        epsilon=GPU_TRACE_VALIDATION_EPSILON,
+        security_density=GPU_TRACE_VALIDATION_SECURITY_DENSITY,
+    )[0]
+    return pad_state_trace_chunk(
+        TraceChunk(
+            sim_id=0,
+            seed=chunk.seed,
+            epsilon=chunk.epsilon,
+            security_density=chunk.security_density,
+            rows=chunk.rows,
+        ),
+        GPU_TRACE_VALIDATION_STEPS,
+    )
+
+
+def _run_gpu_state_trace_case() -> TraceChunk:
+    result = run([str(REPO_ROOT / "build" / "mojo_gpu"), "--trace-validation"], stdout_path=MOJO_GPU_OUTPUT)
+    chunks = parse_gpu_trace_lines(result.stdout)
+    if len(chunks) != 1:
+        raise SystemExit(f"Expected one GPU trace chunk, found {len(chunks)}")
+    return chunks[0]
+
+
 def validate_gpu() -> dict[str, str]:
     """Run the CPU-GPU aggregate validation gate and write Parquet artifacts."""
-    print("\n=== GPU validation: mojo_cpu --rng gpu boundary -> mojo_gpu aggregate gate ===", flush=True)
+    print("\n=== GPU validation: mojo_cpu --rng mojo boundary -> mojo_gpu trace gate ===", flush=True)
     run(["pixi", "run", "build-cpu"])
     run(["pixi", "run", "build-gpu"])
+
+    python_state_digest = write_state_trace_parquet(PYTHON_CORE_STATE_TRACE, [_run_python_state_trace_case()])
+    mojo_cpu_python_state_digest = write_state_trace_parquet(
+        MOJO_CPU_PYTHON_STATE_TRACE, [_run_mojo_cpu_state_trace_case("python")]
+    )
+    mojo_cpu_mojo_state_digest = write_state_trace_parquet(
+        MOJO_CPU_MOJO_STATE_TRACE, [_run_mojo_cpu_state_trace_case("mojo")]
+    )
+    gpu_state_digest = write_state_trace_parquet(MOJO_GPU_STATE_TRACE, [_run_gpu_state_trace_case()])
+    if mojo_cpu_mojo_state_digest != gpu_state_digest:
+        raise SystemExit(
+            "GPU trace validation FAIL: mojo_cpu --rng mojo and mojo_gpu state trace SHA256 differ\n"
+            f"mojo_cpu --rng mojo: {mojo_cpu_mojo_state_digest}\n"
+            f"mojo_gpu:           {gpu_state_digest}"
+        )
+
     result = run([str(REPO_ROOT / "build" / "mojo_gpu")], stdout_path=MOJO_GPU_OUTPUT)
     gpu_rows = parse_gpu_sim_lines(result.stdout)
     if len(gpu_rows) != 45:
@@ -634,6 +834,10 @@ def validate_gpu() -> dict[str, str]:
     gpu_aggregate_digest = write_aggregate_parquet(MOJO_GPU_AGGREGATE, gpu_rows)
     compare_cpu_gpu_aggregates(cpu_rows, gpu_rows)
     return {
+        "python_core_state_trace.parquet": python_state_digest,
+        "mojo_cpu_python_rng_state_trace.parquet": mojo_cpu_python_state_digest,
+        "mojo_cpu_mojo_rng_state_trace.parquet": mojo_cpu_mojo_state_digest,
+        "mojo_gpu_state_trace.parquet": gpu_state_digest,
         "mojo_cpu_gpu_rng_trace.parquet": trace_digest,
         "mojo_cpu_gpu_rng_aggregate.parquet": cpu_aggregate_digest,
         "mojo_gpu_aggregate.parquet": gpu_aggregate_digest,

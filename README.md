@@ -40,7 +40,7 @@ pixi run validate       # both boundaries in order
 1. Run `python-core-simulation/cascade_core.py` with the picked seeds — write a canonical per-agent Parquet trace with seed metadata and Float64 bit columns.
 2. Run `mojo_cpu.mojo --rng python` once per picked seed — write the same canonical Parquet trace layout.
 3. `autoresearch/validation/run_pipeline.py` compares the Python-core and Mojo CPU Parquet SHA256 digests. A match proves bit-level parity for that CPU boundary.
-4. Run `mojo_cpu.mojo --rng gpu` and `mojo_gpu.mojo` through the GPU aggregate gate. GPU SHA256 artifacts are recorded for provenance; the current GPU comparison remains aggregate/tolerance-based.
+4. Run `mojo_cpu.mojo --rng mojo` and `mojo_gpu.mojo --trace-validation` through a per-agent state-trace SHA gate, then run the broader 45-case GPU aggregate tolerance gate.
 
 ## Quick start
 

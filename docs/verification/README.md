@@ -66,9 +66,14 @@ only its RNG provider switched from Python/Mesa RNG to the GPU-compatible LCG
 provider.
 
 The current `validate-gpu` gate builds/runs `mojo_gpu.mojo`, captures
-`autoresearch/validation/mojo_gpu_output.txt`, writes `mojo_gpu_aggregate.parquet`, and writes CPU-side `mojo_cpu_gpu_rng_trace.parquet` plus `mojo_cpu_gpu_rng_aggregate.parquet` for the 15 no-security bridge cases. It records SHA256 digests in `validation_sha256.json`.
+`autoresearch/validation/mojo_gpu_output.txt`, and writes both a trace-level SHA gate and aggregate artifacts:
 
-This is still an aggregate/tolerance gate, not bit-exact GPU parity: `mojo_gpu` uses GPU-native math/kernel semantics and only emits aggregate rows.
+- `mojo_cpu_mojo_rng_state_trace.parquet` from `mojo_cpu --rng mojo`.
+- `mojo_gpu_state_trace.parquet` from `mojo_gpu --trace-validation`.
+- `mojo_cpu_gpu_rng_trace.parquet` and `mojo_cpu_gpu_rng_aggregate.parquet` for the CPU-side aggregate bridge.
+- `mojo_gpu_aggregate.parquet` for the 45 aggregate `Sim ...` GPU lines.
+
+The per-agent state-trace SHA must match for the no-security GPU comparison seed. The broader 45-case GPU sweep remains aggregate/tolerance-based because only the no-security subset has a supported CPU bridge.
 
 ## Archive and non-canonical files
 

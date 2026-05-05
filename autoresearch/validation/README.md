@@ -72,12 +72,16 @@ Because `mojo_cpu.mojo` intentionally does not implement the security arrest pat
 
 `run_pipeline.py --stage gpu` writes:
 
-- `mojo_cpu_gpu_rng_trace.parquet` — per-agent CPU/GPU-RNG traces for the 15 no-security comparison cases.
+- `python_core_state_trace.parquet` — a 500-step per-agent state trace for the GPU comparison seed under Python-core/Python RNG.
+- `mojo_cpu_python_rng_state_trace.parquet` — the same state trace from `mojo_cpu --rng python`.
+- `mojo_cpu_mojo_rng_state_trace.parquet` — the 500-step per-agent state trace from `mojo_cpu --rng mojo`.
+- `mojo_gpu_state_trace.parquet` — the 500-step per-agent state trace emitted by `mojo_gpu --trace-validation`.
+- `mojo_cpu_gpu_rng_trace.parquet` — per-agent CPU/GPU-RNG traces for the 15 no-security aggregate comparison cases.
 - `mojo_cpu_gpu_rng_aggregate.parquet` — final aggregates derived from those traces.
 - `mojo_gpu_aggregate.parquet` — the 45 aggregate `Sim ...` lines emitted by the GPU binary.
 - `validation_sha256.json` — SHA256 digests for the artifacts generated in that run.
 
-The CPU/GPU boundary is still an aggregate tolerance gate, not bit-exact parity: `mojo_gpu` uses GPU-native math/kernel semantics and only emits aggregate rows. SHA256 is recorded for provenance, while the gate checks citizen totals, revolution status, and active-count drift within ±35 for the no-security cases.
+The GPU trace gate now requires `mojo_cpu --rng mojo` and `mojo_gpu --trace-validation` to produce identical state-trace SHA256 values for the no-security GPU comparison seed. The broader 45-case GPU sweep remains an aggregate tolerance gate: it checks citizen totals, revolution status, and active-count drift within ±35 for supported no-security cases.
 
 Expected success text:
 

@@ -12,7 +12,7 @@ Optimizations over one-thread-per-sim:
 - Variable vision parameter (runtime, not comptime)
 """
 
-from std.sys import has_accelerator
+from std.sys import has_accelerator, argv
 from std.math import exp, log, sqrt
 from std.collections import List
 from std.time import perf_counter_ns
@@ -46,7 +46,8 @@ comptime GRID_SIZE: Int = GRID_W * GRID_H  # 1089 cells
 comptime MAX_AGENTS: Int = 1024  # Fits in shared memory (1024 * ~56B = 56KB < 100KB)
 comptime BLOCK_SIZE: Int = 256   # Threads per block (each handles ~4 agents)
 comptime MAX_PER_CELL: Int = 8   # Max agents per grid cell
-comptime MAX_STEPS: Int = 50     # Max steps per simulation (for step_metrics buffer sizing)
+comptime MAX_STEPS: Int = 500    # Max steps per simulation (for step_metrics buffer sizing)
+comptime MAX_TRACE_STEPS: Int = MAX_STEPS + 1  # Step 0 initial state + each executed step
 comptime N_STEP_FIELDS: Int = 5  # Per-step model metrics: active, support, oppose, jail, revolution
 
 
@@ -93,6 +94,18 @@ fn sigmoid_f32(x: Float32) -> Float32:
     return 1.0 / (1.0 + exp(-x))
 
 
+def cond_name(c: Int32) -> String:
+    if c == ACTIVE:
+        return String("Active")
+    elif c == OPPOSE:
+        return String("Oppose")
+    elif c == JAILED:
+        return String("Jailed")
+    elif c == SECURITY_COND:
+        return String("Security")
+    return String("Support")
+
+
 # ============================================================
 # GPU Kernel: One block per simulation
 # ============================================================
@@ -129,6 +142,10 @@ def block_sim_kernel(
     # Fields: 0=active, 1=support, 2=oppose, 3=jail, 4=revolution
     # Pass null pointer to skip per-step collection
     step_metrics: UnsafePointer[Int32, MutAnyOrigin],
+    # Per-agent state trace: [sim_id * MAX_TRACE_STEPS * MAX_AGENTS + step * MAX_AGENTS + agent_id]
+    trace_cond: UnsafePointer[Int32, MutAnyOrigin],
+    trace_pos_x: UnsafePointer[Int32, MutAnyOrigin],
+    trace_pos_y: UnsafePointer[Int32, MutAnyOrigin],
     num_sims: Int,
 ):
     var sid = Int(block_idx.x)
@@ -175,6 +192,17 @@ def block_sim_kernel(
     var moff = sid * 6
     if tid == 0:
         metrics[moff + 4] = 0  # revolution flag = false
+
+    barrier()
+
+    if trace_cond:
+        var tr_i0 = tid
+        while tr_i0 < n_agents:
+            var tr_idx0 = sid * MAX_TRACE_STEPS * MAX_AGENTS + tr_i0
+            trace_cond[tr_idx0] = cond[off + tr_i0]
+            trace_pos_x[tr_idx0] = pos_x[off + tr_i0]
+            trace_pos_y[tr_idx0] = pos_y[off + tr_i0]
+            tr_i0 += BLOCK_SIZE
 
     barrier()
 
@@ -452,6 +480,18 @@ def block_sim_kernel(
 
         barrier()
 
+        if trace_cond:
+            var trace_step = step + 1
+            var tr_i = tid
+            while tr_i < n_agents:
+                var tr_idx = sid * MAX_TRACE_STEPS * MAX_AGENTS + trace_step * MAX_AGENTS + tr_i
+                trace_cond[tr_idx] = cond[off + tr_i]
+                trace_pos_x[tr_idx] = pos_x[off + tr_i]
+                trace_pos_y[tr_idx] = pos_y[off + tr_i]
+                tr_i += BLOCK_SIZE
+
+        barrier()
+
     # ---- Count final metrics (thread 0) ----
     # metrics[moff + 4] (revolution flag) already set during step loop
     if tid == 0:
@@ -492,6 +532,12 @@ def main() raises:
     var ctx = DeviceContext()
     print("GPU:", ctx.name())
 
+    var trace_validation = False
+    var args = argv()
+    for ai in range(1, len(args)):
+        if args[ai] == String("--trace-validation"):
+            trace_validation = True
+
     # Parameter sweep - 5 base seeds x 3 epsilon x 3 sec_density = 45 correctness sims
     # For scale benchmark: 228 seeds x 3 x 3 = 2052 sims
     var benchmark_mode = False
@@ -501,6 +547,9 @@ def main() raises:
     seeds.append(456)
     seeds.append(789)
     seeds.append(1001)
+    if trace_validation:
+        seeds = List[Int]()
+        seeds.append(16)
     if benchmark_mode:
         for s in range(223):
             seeds.append(2000 + s)
@@ -509,16 +558,25 @@ def main() raises:
     epsilons.append(0.2)
     epsilons.append(0.5)
     epsilons.append(1.0)
+    if trace_validation:
+        epsilons = List[Float32]()
+        epsilons.append(0.5)
 
     var sec_densities = List[Float32]()
     sec_densities.append(0.0)
     sec_densities.append(0.02)
     sec_densities.append(0.05)
+    if trace_validation:
+        sec_densities = List[Float32]()
+        sec_densities.append(0.0)
 
     var num_steps = 50
     var citizen_density = Float32(0.7)
     var pp_mean = Float32(0.0)
     var threshold = Float32(2.94444)
+    if trace_validation:
+        num_steps = 500
+        threshold = Float32(2.5)
     var max_jail = 100
     var vision = 7
     var total = len(seeds) * len(epsilons) * len(sec_densities)
@@ -701,6 +759,13 @@ def main() raises:
     var flat_step_size = total * MAX_STEPS * N_STEP_FIELDS
     var h_step_metrics = ctx.enqueue_create_host_buffer[DType.int32](flat_step_size)
     var d_step_metrics = ctx.enqueue_create_buffer[DType.int32](flat_step_size)
+    var flat_trace_size = total * MAX_TRACE_STEPS * MAX_AGENTS
+    var h_trace_cond = ctx.enqueue_create_host_buffer[DType.int32](flat_trace_size)
+    var h_trace_pos_x = ctx.enqueue_create_host_buffer[DType.int32](flat_trace_size)
+    var h_trace_pos_y = ctx.enqueue_create_host_buffer[DType.int32](flat_trace_size)
+    var d_trace_cond = ctx.enqueue_create_buffer[DType.int32](flat_trace_size)
+    var d_trace_pos_x = ctx.enqueue_create_buffer[DType.int32](flat_trace_size)
+    var d_trace_pos_y = ctx.enqueue_create_buffer[DType.int32](flat_trace_size)
     ctx.synchronize()
 
     ctx.enqueue_function[block_sim_kernel, block_sim_kernel](
@@ -711,6 +776,7 @@ def main() raises:
         d_grid_counts, d_grid_cells,
         d_metrics,
         d_step_metrics,
+        d_trace_cond, d_trace_pos_x, d_trace_pos_y,
         total,
         grid_dim=total,
         block_dim=BLOCK_SIZE,
@@ -723,6 +789,9 @@ def main() raises:
     # Copy metrics back
     ctx.enqueue_copy(dst_buf=h_metrics, src_buf=d_metrics)
     ctx.enqueue_copy(dst_buf=h_step_metrics, src_buf=d_step_metrics)
+    ctx.enqueue_copy(dst_buf=h_trace_cond, src_buf=d_trace_cond)
+    ctx.enqueue_copy(dst_buf=h_trace_pos_x, src_buf=d_trace_pos_x)
+    ctx.enqueue_copy(dst_buf=h_trace_pos_y, src_buf=d_trace_pos_y)
     ctx.synchronize()
 
     # Print results in same format as cascade_gpu_batch for comparison
@@ -758,6 +827,26 @@ def main() raises:
                           "step_metrics=", sm_active, sm_support, sm_oppose, sm_jail,
                           "final=", final_active, final_support, final_oppose, final_jail)
                 sim_idx += 1
+
+    if trace_validation:
+        print()
+        print("=== TRACE CSV ===")
+        for sim in range(total):
+            var seed_val = seeds[0]
+            var eps_val = epsilons[0]
+            var sd_val = sec_densities[0]
+            var n_citizens = Int(h_num_citizens[sim])
+            for step in range(num_steps + 1):
+                var tr_base = sim * MAX_TRACE_STEPS * MAX_AGENTS + step * MAX_AGENTS
+                for agent_id in range(n_citizens):
+                    print(
+                        "TRACE,", sim, ",", seed_val, ",", eps_val, ",", sd_val, ",",
+                        step, ",", agent_id, ",",
+                        h_trace_pos_x[tr_base + agent_id], ",",
+                        h_trace_pos_y[tr_base + agent_id], ",",
+                        cond_name(h_trace_cond[tr_base + agent_id]),
+                        sep="",
+                    )
 
     # Print step-by-step data for first simulation as sample
     print()
