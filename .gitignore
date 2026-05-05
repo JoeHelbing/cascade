@@ -174,6 +174,7 @@ dmypy.json
 /autoresearch/validation/picked_oscillating_mesa.json
 /autoresearch/validation/picked_seeds_oscillating*.json
 /autoresearch/validation/mojo_gpu_output.txt
+/autoresearch/validation/validation_sha256.json
 /autoresearch/validation/archive/generated/*
 !/autoresearch/validation/archive/generated/python_trace.parquet
 !/autoresearch/validation/archive/generated/python_model_trace.parquet

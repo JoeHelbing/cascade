@@ -13,19 +13,19 @@ Everything else in this directory is config (`picked_seeds.json`) or prose
 
 ```text
 python-core-simulation/cascade_core.py
-    ↓ CSV trace comparison inside run_pipeline.py
+    ↓ canonical Parquet trace + SHA256 equality
 mojo_cpu.mojo --rng python
-    ↓ same CLI, GPU-compatible RNG mode for no-security aggregate cases
+    ↓ GPU-compatible RNG mode for no-security aggregate cases
 mojo_cpu.mojo --rng gpu
-    ↓ aggregate comparison plus full GPU smoke/fingerprint gate
+    ↓ Parquet aggregate comparison plus full GPU smoke/fingerprint gate
 mojo_gpu.mojo
 ```
 
 ## Quick commands
 
 ```bash
-pixi run validate-cpu   # Mesa trace -> mojo_cpu --rng python -> bit-exact compare
-pixi run validate-gpu   # build/run mojo_gpu and check 45 aggregate Sim lines
+pixi run validate-cpu   # python-core Parquet -> mojo_cpu --rng python Parquet -> SHA256 match
+pixi run validate-gpu   # mojo_cpu --rng gpu Parquet artifacts + mojo_gpu aggregate Parquet gate
 pixi run validate       # run both boundaries in order
 ```
 
@@ -41,7 +41,7 @@ uv run autoresearch/validation/run_pipeline.py --stage all
 
 | Path | Purpose |
 |---|---|
-| `run_pipeline.py` | The single validation-chain script. It generates Mesa traces, runs Mojo binaries, and performs the current comparisons. |
+| `run_pipeline.py` | The single validation-chain script. It generates Parquet artifacts, runs Mojo binaries, writes SHA256 manifests, and performs the current comparisons. |
 | `picked_seeds.json` | Canonical CPU validation seed/config set. |
 | `README.md` | This guide. |
 | `../../mojo_cpu.mojo` | CPU simulation/validation bridge; emits per-agent CSV and supports `--rng python|gpu`. |
@@ -49,15 +49,19 @@ uv run autoresearch/validation/run_pipeline.py --stage all
 
 ## CPU validation: Python core -> Mojo CPU
 
-`run_pipeline.py --stage cpu` now uses the checked-in regression tests for the Python core reference basis:
+`run_pipeline.py --stage cpu` validates the Python-core reference basis in two layers:
 
 1. Run `tests.test_python_core_simulation` for core mechanics.
-2. Run `tests.test_mojo_cpu_cli`, which builds `mojo_cpu.mojo` and compares `--rng python` output against `cascade_core.ResistanceCascade` row by row with raw Float64 bit checks.
+2. Run `tests.test_mojo_cpu_cli` for a small row-by-row CLI regression with raw Float64 bit checks.
+3. Generate `python_core_trace.parquet` for all picked seeds.
+4. Run `mojo_cpu --rng python` once per picked seed, append the simulations into `mojo_cpu_python_rng_trace.parquet`, and compare the two Parquet files by SHA256.
+
+The Parquet trace includes simulation metadata columns (`sim_id`, `seed`, `epsilon_config`, `security_density_config`) plus the trace schema and raw `*_bits` columns for every Float64 field. A matching SHA therefore proves identical row order, metadata, scalar values, nulls, booleans, and IEEE-754 bit patterns in the canonical artifact.
 
 Expected success text:
 
 ```text
-CPU validation PASS: python-core and mojo_cpu CLI regression tests passed.
+CPU validation PASS: Parquet SHA256 match (...).
 ```
 
 ## GPU validation: Mojo CPU boundary -> Mojo GPU
@@ -65,6 +69,15 @@ CPU validation PASS: python-core and mojo_cpu CLI regression tests passed.
 GPU validation uses `mojo_cpu.mojo --rng gpu` as the CPU-side bridge for the GPU-compatible LCG stream. The GPU binary still runs its full hardcoded 45-case grid and must emit 45 `Sim ...` aggregate lines.
 
 Because `mojo_cpu.mojo` intentionally does not implement the security arrest path in GPU RNG mode, the CPU-vs-GPU aggregate comparison is limited to the 15 no-security cases (`security_density == 0.0`) that both implementations support. For those cases the gate checks citizen totals, revolution status, and active-count drift within the documented Float64-vs-Float32/kernel-layout tolerance.
+
+`run_pipeline.py --stage gpu` writes:
+
+- `mojo_cpu_gpu_rng_trace.parquet` — per-agent CPU/GPU-RNG traces for the 15 no-security comparison cases.
+- `mojo_cpu_gpu_rng_aggregate.parquet` — final aggregates derived from those traces.
+- `mojo_gpu_aggregate.parquet` — the 45 aggregate `Sim ...` lines emitted by the GPU binary.
+- `validation_sha256.json` — SHA256 digests for the artifacts generated in that run.
+
+The CPU/GPU boundary is still an aggregate tolerance gate, not bit-exact parity: `mojo_gpu` uses GPU-native math/kernel semantics and only emits aggregate rows. SHA256 is recorded for provenance, while the gate checks citizen totals, revolution status, and active-count drift within ±35 for the no-security cases.
 
 Expected success text:
 

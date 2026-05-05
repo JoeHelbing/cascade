@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import re
 import struct
@@ -34,17 +35,45 @@ VALIDATION_DIR = REPO_ROOT / "autoresearch" / "validation"
 DEFAULT_SEEDS = VALIDATION_DIR / "picked_seeds.json"
 PYTHON_TRACE = VALIDATION_DIR / "python_trace.parquet"
 PYTHON_MODEL_TRACE = VALIDATION_DIR / "python_model_trace.parquet"
-PYTHON_CORE_TRACE = VALIDATION_DIR / "python_core_trace.csv"
-MOJO_CPU_TRACE = VALIDATION_DIR / "mojo_cpu_bitexact.csv"
-MOJO_CPU_GPU_TRACE = VALIDATION_DIR / "mojo_cpu_gpu_bridge.csv"
+PYTHON_CORE_TRACE = VALIDATION_DIR / "python_core_trace.parquet"
+MOJO_CPU_TRACE = VALIDATION_DIR / "mojo_cpu_python_rng_trace.parquet"
+MOJO_CPU_GPU_TRACE = VALIDATION_DIR / "mojo_cpu_gpu_rng_trace.parquet"
+MOJO_CPU_GPU_AGGREGATE = VALIDATION_DIR / "mojo_cpu_gpu_rng_aggregate.parquet"
+MOJO_GPU_AGGREGATE = VALIDATION_DIR / "mojo_gpu_aggregate.parquet"
 MOJO_GPU_OUTPUT = VALIDATION_DIR / "mojo_gpu_output.txt"
+SHA_MANIFEST = VALIDATION_DIR / "validation_sha256.json"
 
 sys.path.insert(0, str(REPO_ROOT / "python-core-simulation"))
-from cascade_core import ResistanceCascade  # noqa: E402  # pyright: ignore[reportMissingImports]
+from cascade_core import ResistanceCascade, TRACE_FIELDS  # noqa: E402  # pyright: ignore[reportMissingImports]
 
 FLOAT_COLS = ["opinion", "activation", "active_level", "oppose_level"]
 INT_COLS = ["pos_x", "pos_y", "jail_sentence"]
 STR_COLS = ["condition"]
+TRACE_FLOAT_FIELDS = [
+    "opinion",
+    "activation",
+    "private_preference",
+    "epsilon",
+    "oppose_threshold",
+    "active_threshold",
+    "perception",
+    "arrest_prob",
+    "active_level",
+    "oppose_level",
+]
+TRACE_INT_FIELDS = [
+    "step",
+    "agent_id",
+    "x",
+    "y",
+    "jail_sentence",
+    "active_in_vision",
+    "oppose_in_vision",
+    "support_in_vision",
+    "security_in_vision",
+]
+TRACE_BOOL_FIELDS = ["flip", "ever_flipped"]
+TRACE_STRING_FIELDS = ["agent_type", "condition"]
 GPU_SEEDS = [42, 123, 456, 789, 1001]
 GPU_EPSILONS = [0.2, 0.5, 1.0]
 GPU_SECURITY_DENSITIES = [0.0, 0.02, 0.05]
@@ -62,6 +91,15 @@ class AggregateRow:
     oppose: int
     jail: int
     revolution: bool
+
+
+@dataclass(frozen=True)
+class TraceChunk:
+    sim_id: int
+    seed: int
+    epsilon: float
+    security_density: float
+    rows: list[dict]
 
 
 def run(cmd: list[str], *, stdout_path: Path | None = None) -> subprocess.CompletedProcess[str]:
@@ -82,6 +120,208 @@ def run(cmd: list[str], *, stdout_path: Path | None = None) -> subprocess.Comple
         print(result.stderr, file=sys.stderr, end="")
     print(f"wrote stdout to {stdout_path.relative_to(REPO_ROOT)}")
     return result
+
+
+def run_capture(cmd: list[str]) -> subprocess.CompletedProcess[str]:
+    print("$", " ".join(cmd), flush=True)
+    result = subprocess.run(cmd, cwd=REPO_ROOT, check=True, text=True, capture_output=True)
+    if result.stderr:
+        print(result.stderr, file=sys.stderr, end="")
+    return result
+
+
+def sha256_file(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def display_path(path: Path) -> str:
+    try:
+        return str(path.relative_to(REPO_ROOT))
+    except ValueError:
+        return str(path)
+
+
+def _none_if_empty(value: object) -> object | None:
+    return None if value is None or value == "" else value
+
+
+def _as_int(value: object) -> int | None:
+    value = _none_if_empty(value)
+    return None if value is None else int(value)
+
+
+def _as_float(value: object) -> float | None:
+    value = _none_if_empty(value)
+    return None if value is None else float(value)
+
+
+def _as_bool(value: object) -> bool | None:
+    value = _none_if_empty(value)
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    if str(value) == "True":
+        return True
+    if str(value) == "False":
+        return False
+    raise ValueError(f"Expected boolean-ish value, got {value!r}")
+
+
+def _trace_schema() -> pa.Schema:
+    fields = [
+        pa.field("sim_id", pa.int64()),
+        pa.field("seed", pa.int64()),
+        pa.field("epsilon_config", pa.float64()),
+        pa.field("security_density_config", pa.float64()),
+    ]
+    for field in TRACE_FIELDS:
+        if field in TRACE_INT_FIELDS:
+            fields.append(pa.field(field, pa.int64()))
+        elif field in TRACE_FLOAT_FIELDS:
+            fields.append(pa.field(field, pa.float64()))
+        elif field in TRACE_BOOL_FIELDS:
+            fields.append(pa.field(field, pa.bool_()))
+        else:
+            fields.append(pa.field(field, pa.string()))
+    for field in TRACE_FLOAT_FIELDS:
+        fields.append(pa.field(f"{field}_bits", pa.uint64()))
+    return pa.schema(fields)
+
+
+def _normalise_trace_row(
+    row: dict,
+    *,
+    sim_id: int,
+    seed: int,
+    epsilon: float,
+    security_density: float,
+) -> dict:
+    out: dict[str, object | None] = {
+        "sim_id": sim_id,
+        "seed": seed,
+        "epsilon_config": epsilon,
+        "security_density_config": security_density,
+    }
+    for field in TRACE_FIELDS:
+        value = row.get(field)
+        if field in TRACE_INT_FIELDS:
+            out[field] = _as_int(value)
+        elif field in TRACE_FLOAT_FIELDS:
+            out[field] = _as_float(value)
+        elif field in TRACE_BOOL_FIELDS:
+            out[field] = _as_bool(value)
+        else:
+            value = _none_if_empty(value)
+            out[field] = None if value is None else str(value)
+    for field in TRACE_FLOAT_FIELDS:
+        value = out[field]
+        out[f"{field}_bits"] = None if value is None else float_bits(float(value))
+    return out
+
+
+def write_trace_parquet(path: Path, chunks: list[TraceChunk] | list[tuple[int, int, float, float, list[dict]]]) -> str:
+    """Overwrite a trace artifact and write all simulation chunks into one Parquet file."""
+    path.unlink(missing_ok=True)
+    normalised: list[dict] = []
+    for chunk in chunks:
+        if isinstance(chunk, TraceChunk):
+            sim_id, seed, epsilon, security_density, rows = (
+                chunk.sim_id,
+                chunk.seed,
+                chunk.epsilon,
+                chunk.security_density,
+                chunk.rows,
+            )
+        else:
+            sim_id, seed, epsilon, security_density, rows = chunk
+        normalised.extend(
+            _normalise_trace_row(
+                row,
+                sim_id=sim_id,
+                seed=seed,
+                epsilon=epsilon,
+                security_density=security_density,
+            )
+            for row in rows
+        )
+    table = pa.Table.from_pylist(normalised, schema=_trace_schema())
+    pq.write_table(table, path, compression="NONE", use_dictionary=False, write_statistics=False)
+    digest = sha256_file(path)
+    print(f"wrote {display_path(path)} sha256={digest}")
+    return digest
+
+
+def split_mojo_trace_output_by_seed(
+    output: str,
+    seeds: list[int],
+    *,
+    epsilon: float = 0.0,
+    security_density: float = 0.0,
+) -> list[TraceChunk]:
+    """Split concatenated mojo_cpu CSV stdout into seed chunks by step-0 reset."""
+    data_lines = [line for line in output.splitlines() if line and not line.startswith("#")]
+    reader = csv.DictReader(data_lines)
+    chunks: list[list[dict]] = []
+    current: list[dict] = []
+    previous_step: int | None = None
+    for row in reader:
+        step = int(row["step"])
+        if current and step == 0 and previous_step != 0:
+            chunks.append(current)
+            current = []
+        current.append(row)
+        previous_step = step
+    if current:
+        chunks.append(current)
+    if len(chunks) != len(seeds):
+        raise SystemExit(f"Expected {len(seeds)} mojo_cpu trace chunks, found {len(chunks)}")
+    return [
+        TraceChunk(sim_id=sim_id, seed=seed, epsilon=epsilon, security_density=security_density, rows=rows)
+        for sim_id, (seed, rows) in enumerate(zip(seeds, chunks, strict=True))
+    ]
+
+
+def write_aggregate_parquet(path: Path, rows: list[AggregateRow]) -> str:
+    path.unlink(missing_ok=True)
+    table = pa.Table.from_pylist(
+        [
+            {
+                "sim_id": row.sim_id,
+                "seed": row.seed,
+                "epsilon": row.epsilon,
+                "security_density": row.security_density,
+                "active": row.active,
+                "support": row.support,
+                "oppose": row.oppose,
+                "jail": row.jail,
+                "revolution": row.revolution,
+            }
+            for row in rows
+        ],
+        schema=pa.schema(
+            [
+                pa.field("sim_id", pa.int64()),
+                pa.field("seed", pa.int64()),
+                pa.field("epsilon", pa.float64()),
+                pa.field("security_density", pa.float64()),
+                pa.field("active", pa.int64()),
+                pa.field("support", pa.int64()),
+                pa.field("oppose", pa.int64()),
+                pa.field("jail", pa.int64()),
+                pa.field("revolution", pa.bool_()),
+            ]
+        ),
+    )
+    pq.write_table(table, path, compression="NONE", use_dictionary=False, write_statistics=False)
+    digest = sha256_file(path)
+    print(f"wrote {display_path(path)} sha256={digest}")
+    return digest
+
+
+def write_sha_manifest(entries: dict[str, str]) -> None:
+    SHA_MANIFEST.write_text(json.dumps(entries, indent=2, sort_keys=True) + "\n")
+    print(f"wrote {SHA_MANIFEST.relative_to(REPO_ROOT)}")
 
 
 def _cpu_param_args(params: dict, steps: int, seeds: list[int]) -> list[str]:
@@ -105,42 +345,45 @@ def _cpu_param_args(params: dict, steps: int, seeds: list[int]) -> list[str]:
     ]
 
 
-def generate_python_core_trace(seeds_path: Path, out: Path) -> None:
-    """Generate the python-core reference CSV that mojo_cpu --rng python must emit."""
+def generate_python_core_trace(seeds_path: Path, out: Path) -> str:
+    """Generate the python-core reference Parquet that mojo_cpu --rng python must emit."""
     cfg = json.loads(seeds_path.read_text())
     params = cfg["params"]
     steps = cfg["steps"]
     seeds = [p["seed"] for p in cfg["picked"]]
 
-    with out.open("w", newline="") as output:
-        wrote_header = False
-        for seed in seeds:
-            print(f"running python-core seed={seed}")
-            sim = ResistanceCascade(
-                width=params["width"],
-                height=params["height"],
-                citizen_vision=params["citizen_vision"],
-                citizen_density=params["citizen_density"],
-                security_density=params["security_density"],
-                security_vision=params["security_vision"],
-                max_jail_term=params["max_jail_term"],
-                movement=params["movement"],
-                private_preference_distribution_mean=params["private_preference_distribution_mean"],
-                standard_deviation=params["standard_deviation"],
-                epsilon=params["epsilon"],
-                threshold=params["threshold"],
-                max_iters=steps,
+    chunks: list[TraceChunk] = []
+    for sim_id, seed in enumerate(seeds):
+        print(f"running python-core seed={seed}")
+        sim = ResistanceCascade(
+            width=params["width"],
+            height=params["height"],
+            citizen_vision=params["citizen_vision"],
+            citizen_density=params["citizen_density"],
+            security_density=params["security_density"],
+            security_vision=params["security_vision"],
+            max_jail_term=params["max_jail_term"],
+            movement=params["movement"],
+            private_preference_distribution_mean=params["private_preference_distribution_mean"],
+            standard_deviation=params["standard_deviation"],
+            epsilon=params["epsilon"],
+            threshold=params["threshold"],
+            max_iters=steps,
+            seed=seed,
+            collect_trace=True,
+        )
+        sim.run(steps=steps)
+        rows = [dict((field, getattr(row, field)) for field in TRACE_FIELDS) for row in sim.trace]
+        chunks.append(
+            TraceChunk(
+                sim_id=sim_id,
                 seed=seed,
-                collect_trace=True,
+                epsilon=float(params["epsilon"]),
+                security_density=float(params["security_density"]),
+                rows=rows,
             )
-            sim.run(steps=steps)
-            rows = [dict((field, getattr(row, field)) for field in row.__dataclass_fields__) for row in sim.trace]
-            writer = csv.DictWriter(output, fieldnames=list(rows[0].keys()))
-            if not wrote_header:
-                writer.writeheader()
-                wrote_header = True
-            writer.writerows(rows)
-    print(f"wrote python-core trace to {out.relative_to(REPO_ROOT)}")
+        )
+    return write_trace_parquet(out, chunks)
 
 
 def _csv_payload(path: Path) -> str:
@@ -214,6 +457,27 @@ def parse_gpu_sim_lines(output: str) -> list[AggregateRow]:
     return rows
 
 
+def _aggregate_from_trace_rows(
+    data: list[dict],
+    *,
+    sim_id: int,
+    seed: int,
+    epsilon: float,
+    security_density: float,
+) -> AggregateRow:
+    citizens = [row for row in data if row.get("agent_type") == "Citizen"]
+    if not citizens:
+        raise SystemExit("No citizen rows found in mojo_cpu trace output")
+    last_step = max(int(row["step"]) for row in citizens)
+    final = [row for row in citizens if int(row["step"]) == last_step]
+    active = sum(1 for row in final if row["condition"] == "Active")
+    support = sum(1 for row in final if row["condition"] == "Support")
+    oppose = sum(1 for row in final if row["condition"] == "Oppose")
+    jail = sum(1 for row in final if row["condition"] == "Jailed")
+    revolution = (active + jail) / len(final) >= 0.95
+    return AggregateRow(sim_id, seed, epsilon, security_density, active, support, oppose, jail, revolution)
+
+
 def load_mojo_cpu_gpu_aggregate(
     path: Path,
     *,
@@ -224,21 +488,17 @@ def load_mojo_cpu_gpu_aggregate(
 ) -> AggregateRow:
     rows = [line for line in path.read_text().splitlines() if line and not line.startswith("#")]
     reader = csv.DictReader(rows)
-    data = [row for row in reader if row.get("agent_type") == "Citizen"]
-    if not data:
-        raise SystemExit(f"No citizen rows found in {path.relative_to(REPO_ROOT)}")
-    last_step = max(int(row["step"]) for row in data)
-    final = [row for row in data if int(row["step"]) == last_step]
-    active = sum(1 for row in final if row["condition"] == "Active")
-    support = sum(1 for row in final if row["condition"] == "Support")
-    oppose = sum(1 for row in final if row["condition"] == "Oppose")
-    jail = sum(1 for row in final if row["condition"] == "Jailed")
-    revolution = (active + jail) / len(final) >= 0.95
-    return AggregateRow(sim_id, seed, epsilon, security_density, active, support, oppose, jail, revolution)
+    return _aggregate_from_trace_rows(
+        list(reader),
+        sim_id=sim_id,
+        seed=seed,
+        epsilon=epsilon,
+        security_density=security_density,
+    )
 
 
-def _run_cpu_gpu_case(sim_id: int, seed: int, epsilon: float, security_density: float) -> AggregateRow:
-    run(
+def _run_cpu_gpu_case(sim_id: int, seed: int, epsilon: float, security_density: float) -> tuple[TraceChunk, AggregateRow]:
+    result = run_capture(
         [
             str(REPO_ROOT / "build" / "mojo_cpu"),
             "--rng", "gpu",
@@ -252,16 +512,19 @@ def _run_cpu_gpu_case(sim_id: int, seed: int, epsilon: float, security_density: 
             "--seed", str(seed),
             "--movement", "true",
             "--random-seed", "false",
-        ],
-        stdout_path=MOJO_CPU_GPU_TRACE,
+        ]
     )
-    return load_mojo_cpu_gpu_aggregate(
-        MOJO_CPU_GPU_TRACE,
+    data_lines = [line for line in result.stdout.splitlines() if line and not line.startswith("#")]
+    rows = list(csv.DictReader(data_lines))
+    chunk = TraceChunk(sim_id=sim_id, seed=seed, epsilon=epsilon, security_density=security_density, rows=rows)
+    aggregate = _aggregate_from_trace_rows(
+        rows,
         sim_id=sim_id,
         seed=seed,
         epsilon=epsilon,
         security_density=security_density,
     )
+    return chunk, aggregate
 
 
 def compare_cpu_gpu_aggregates(cpu_rows: list[AggregateRow], gpu_rows: list[AggregateRow]) -> None:
@@ -289,8 +552,8 @@ def compare_cpu_gpu_aggregates(cpu_rows: list[AggregateRow], gpu_rows: list[Aggr
     )
 
 
-def validate_cpu(args: argparse.Namespace) -> None:
-    """Validate mojo_cpu.mojo --rng python against python-core-simulation tests."""
+def validate_cpu(args: argparse.Namespace) -> dict[str, str]:
+    """Validate mojo_cpu.mojo --rng python against python-core-simulation Parquet."""
     print("\n=== CPU validation: python-core-simulation -> mojo_cpu --rng python ===", flush=True)
     run([
         "pixi",
@@ -301,11 +564,49 @@ def validate_cpu(args: argparse.Namespace) -> None:
         "tests.test_python_core_simulation",
         "tests.test_mojo_cpu_cli",
     ])
-    print("CPU validation PASS: python-core and mojo_cpu CLI regression tests passed.")
+    run(["pixi", "run", "build-cpu"])
+
+    cfg = json.loads(args.seeds.read_text())
+    params = cfg["params"]
+    steps = cfg["steps"]
+    seeds = [p["seed"] for p in cfg["picked"]]
+
+    python_digest = generate_python_core_trace(args.seeds, PYTHON_CORE_TRACE)
+    mojo_chunks: list[TraceChunk] = []
+    for sim_id, seed in enumerate(seeds):
+        result = run_capture(
+            [str(REPO_ROOT / "build" / "mojo_cpu"), "--rng", "python", *_cpu_param_args(params, steps, [seed])]
+        )
+        chunk = split_mojo_trace_output_by_seed(
+            result.stdout,
+            [seed],
+            epsilon=float(params["epsilon"]),
+            security_density=float(params["security_density"]),
+        )[0]
+        mojo_chunks.append(
+            TraceChunk(
+                sim_id=sim_id,
+                seed=chunk.seed,
+                epsilon=chunk.epsilon,
+                security_density=chunk.security_density,
+                rows=chunk.rows,
+            )
+        )
+    mojo_digest = write_trace_parquet(MOJO_CPU_TRACE, mojo_chunks)
+    if python_digest != mojo_digest:
+        raise SystemExit(
+            "CPU validation FAIL: python-core and mojo_cpu --rng python Parquet SHA256 differ\n"
+            f"python-core: {python_digest}\nmojo_cpu:    {mojo_digest}"
+        )
+    print(f"CPU validation PASS: Parquet SHA256 match ({python_digest}).")
+    return {
+        "python_core_trace.parquet": python_digest,
+        "mojo_cpu_python_rng_trace.parquet": mojo_digest,
+    }
 
 
-def validate_gpu() -> None:
-    """Run the CPU-GPU aggregate validation gate."""
+def validate_gpu() -> dict[str, str]:
+    """Run the CPU-GPU aggregate validation gate and write Parquet artifacts."""
     print("\n=== GPU validation: mojo_cpu --rng gpu boundary -> mojo_gpu aggregate gate ===", flush=True)
     run(["pixi", "run", "build-cpu"])
     run(["pixi", "run", "build-gpu"])
@@ -317,15 +618,26 @@ def validate_gpu() -> None:
             f"See {MOJO_GPU_OUTPUT.relative_to(REPO_ROOT)}."
         )
 
+    cpu_trace_chunks: list[TraceChunk] = []
     cpu_rows: list[AggregateRow] = []
     sim_id = 0
     for seed in GPU_SEEDS:
         for epsilon in GPU_EPSILONS:
             for security_density in GPU_SECURITY_DENSITIES:
                 if security_density == 0.0:
-                    cpu_rows.append(_run_cpu_gpu_case(sim_id, seed, epsilon, security_density))
+                    trace_chunk, aggregate = _run_cpu_gpu_case(sim_id, seed, epsilon, security_density)
+                    cpu_trace_chunks.append(trace_chunk)
+                    cpu_rows.append(aggregate)
                 sim_id += 1
+    trace_digest = write_trace_parquet(MOJO_CPU_GPU_TRACE, cpu_trace_chunks)
+    cpu_aggregate_digest = write_aggregate_parquet(MOJO_CPU_GPU_AGGREGATE, cpu_rows)
+    gpu_aggregate_digest = write_aggregate_parquet(MOJO_GPU_AGGREGATE, gpu_rows)
     compare_cpu_gpu_aggregates(cpu_rows, gpu_rows)
+    return {
+        "mojo_cpu_gpu_rng_trace.parquet": trace_digest,
+        "mojo_cpu_gpu_rng_aggregate.parquet": cpu_aggregate_digest,
+        "mojo_gpu_aggregate.parquet": gpu_aggregate_digest,
+    }
 
 
 def parse_args() -> argparse.Namespace:
@@ -342,10 +654,12 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
+    sha_entries: dict[str, str] = {}
     if args.stage in {"cpu", "all"}:
-        validate_cpu(args)
+        sha_entries.update(validate_cpu(args))
     if args.stage in {"gpu", "all"}:
-        validate_gpu()
+        sha_entries.update(validate_gpu())
+    write_sha_manifest(sha_entries)
     print("\nValidation pipeline complete.")
     return 0
 

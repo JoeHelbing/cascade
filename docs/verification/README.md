@@ -7,18 +7,16 @@ This page is the repo-local map for understanding and extending Cascade verifica
 The model has three implementation surfaces:
 
 ```text
-original_python/ Mesa reference
-    ↓ CPU trace / bit-exact comparison
+python-core-simulation/cascade_core.py
+    ↓ canonical Parquet trace / SHA256 bit-exact comparison
 mojo_cpu.mojo --rng python
-    ↓ same CPU implementation, RNG provider switch only
+    ↓ same CPU implementation, GPU-compatible RNG mode
 mojo_cpu.mojo --rng gpu
-    ↓ aggregate/fingerprint comparison
+    ↓ Parquet aggregate/fingerprint comparison
 mojo_gpu.mojo throughput kernel
 ```
 
-Validate one change boundary at a time. Do not use a new Python reimplementation
-of the GPU algorithm as the source of truth; that only validates the
-reimplementation. The original Mesa model remains the semantic reference.
+Validate one change boundary at a time. The current CPU correctness basis is the readable `python-core-simulation/cascade_core.py` reference. The archived Mesa/original-Python path remains provenance for the model semantics.
 
 ## One live validation script
 
@@ -31,8 +29,8 @@ autoresearch/validation/run_pipeline.py
 Use:
 
 ```bash
-pixi run validate-cpu   # Mesa trace -> mojo_cpu --rng python -> bit-exact compare
-pixi run validate-gpu   # build/run mojo_gpu and check aggregate output shape
+pixi run validate-cpu   # python-core Parquet -> mojo_cpu --rng python Parquet -> SHA256 match
+pixi run validate-gpu   # mojo_cpu --rng gpu + mojo_gpu Parquet aggregate gate
 pixi run validate       # both boundaries in order
 ```
 
@@ -47,19 +45,18 @@ Older split helpers such as `run_python_trace.py`, `compare_bitexact.py`, and
 `autoresearch/validation/archive/historical/`; their live logic is now inside
 `run_pipeline.py`.
 
-## CPU verification: Mesa -> Mojo CPU
+## CPU verification: Python core -> Mojo CPU
 
 `run_pipeline.py --stage cpu` does the full CPU boundary inline:
 
-1. Runs the original Mesa model for `picked_seeds.json`.
-2. Writes `python_trace.parquet` and `python_model_trace.parquet` as generated artifacts.
-3. Builds `mojo_cpu.mojo`.
-4. Runs `build/mojo_cpu --rng python > mojo_cpu_bitexact.csv`.
-5. Compares Mesa and Mojo per-agent rows bit-for-bit on tracked columns.
+1. Runs unit regressions for Python-core mechanics and a small Mojo CPU CLI bit check.
+2. Runs `python-core-simulation/cascade_core.py` for every picked seed.
+3. Writes `python_core_trace.parquet` with `sim_id`, `seed`, config metadata, the trace row schema, and raw `*_bits` columns for Float64 fields.
+4. Runs `build/mojo_cpu --rng python` once per picked seed.
+5. Writes `mojo_cpu_python_rng_trace.parquet` in the same canonical layout.
+6. Compares the two Parquet SHA256 digests.
 
-Known current result from project memory: the CPU port reached bit-exact
-validation for the picked-seed set: `96,320 / 96,320` citizen rows matched Mesa
-bit-for-bit.
+A matching digest proves the canonical artifacts have identical rows, metadata, nulls, booleans, numeric values, and IEEE-754 Float64 bit patterns.
 
 ## GPU verification: Mojo CPU boundary -> Mojo GPU
 
@@ -69,9 +66,9 @@ only its RNG provider switched from Python/Mesa RNG to the GPU-compatible LCG
 provider.
 
 The current `validate-gpu` gate builds/runs `mojo_gpu.mojo`, captures
-`autoresearch/validation/mojo_gpu_output.txt`, and asserts the output contains
-45 aggregate `Sim ...` lines. This is a smoke/fingerprint-style gate, not yet a
-full CPU/GPU equality gate.
+`autoresearch/validation/mojo_gpu_output.txt`, writes `mojo_gpu_aggregate.parquet`, and writes CPU-side `mojo_cpu_gpu_rng_trace.parquet` plus `mojo_cpu_gpu_rng_aggregate.parquet` for the 15 no-security bridge cases. It records SHA256 digests in `validation_sha256.json`.
+
+This is still an aggregate/tolerance gate, not bit-exact GPU parity: `mojo_gpu` uses GPU-native math/kernel semantics and only emits aggregate rows.
 
 ## Archive and non-canonical files
 

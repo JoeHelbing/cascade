@@ -32,15 +32,15 @@ This is the [karpathy/autoresearch](https://github.com/karpathy/autoresearch) co
 `autoresearch/validation/` is the canonical cross-check harness. Start there for commands, or read [`docs/verification/`](docs/verification/) for the human-facing map.
 
 ```bash
-pixi run validate-cpu   # original_python -> mojo_cpu bit-exact gate
-pixi run validate-gpu   # mojo_gpu aggregate smoke/fingerprint gate
+pixi run validate-cpu   # python-core -> mojo_cpu --rng python Parquet SHA256 gate
+pixi run validate-gpu   # mojo_cpu --rng gpu + mojo_gpu Parquet aggregate gate
 pixi run validate       # both boundaries in order
 ```
 
-1. Run `original_python/` with the picked seeds — dump Mesa per-agent and per-step traces.
-2. Run `mojo_cpu.mojo` with the same seeds — emit per-agent CSV.
-3. `autoresearch/validation/run_pipeline.py` compares Mesa and Mojo rows bit-for-bit. Any divergence is a correctness bug in the CPU port.
-4. Run `mojo_gpu.mojo` through the GPU aggregate gate.
+1. Run `python-core-simulation/cascade_core.py` with the picked seeds — write a canonical per-agent Parquet trace with seed metadata and Float64 bit columns.
+2. Run `mojo_cpu.mojo --rng python` once per picked seed — write the same canonical Parquet trace layout.
+3. `autoresearch/validation/run_pipeline.py` compares the Python-core and Mojo CPU Parquet SHA256 digests. A match proves bit-level parity for that CPU boundary.
+4. Run `mojo_cpu.mojo --rng gpu` and `mojo_gpu.mojo` through the GPU aggregate gate. GPU SHA256 artifacts are recorded for provenance; the current GPU comparison remains aggregate/tolerance-based.
 
 ## Quick start
 
@@ -48,8 +48,8 @@ pixi run validate       # both boundaries in order
 pixi install
 pixi run build-cpu      # compile mojo_cpu.mojo -> build/mojo_cpu
 pixi run build-gpu      # compile mojo_gpu.mojo -> build/mojo_gpu
-pixi run validate-cpu   # Mesa -> Mojo CPU correctness
-pixi run validate-gpu   # Mojo GPU aggregate validation
+pixi run validate-cpu   # Python-core -> Mojo CPU Parquet SHA256 correctness
+pixi run validate-gpu   # Mojo CPU/GPU-RNG -> Mojo GPU aggregate validation
 ```
 
 ## Branch policy
