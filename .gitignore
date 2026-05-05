@@ -181,3 +181,4 @@ dmypy.json
 
 # Claude Code runtime
 .claude/scheduled_tasks.lock
+/tmp/visual-explainer/
