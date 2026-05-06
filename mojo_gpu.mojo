@@ -195,6 +195,20 @@ def block_sim_kernel(
 
     barrier()
 
+    # Python/Python-core records step 0 after an initial determine-condition
+    # pass. For state-only GPU traces the visible state is unchanged, but the
+    # activation draw advances each per-agent RNG stream. Mirror that ordering
+    # so later steps are aligned with the CPU bridge.
+    var init_decision_i = tid
+    while init_decision_i < n_citizens:
+        var init_ai = off + init_decision_i
+        var init_rng_state = rng_arr[init_ai]
+        init_rng_state = lcg_next(init_rng_state)
+        rng_arr[init_ai] = init_rng_state
+        init_decision_i += BLOCK_SIZE
+
+    barrier()
+
     if trace_cond:
         var tr_i0 = tid
         while tr_i0 < n_agents:
@@ -272,6 +286,8 @@ def block_sim_kernel(
                         for slot in range(cnt):
                             var j = Int(s_grid_cells[cell * MAX_PER_CELL + slot])
                             if j == i:
+                                continue
+                            if Int(pos_x[off + j]) == ax and Int(pos_y[off + j]) == ay:
                                 continue
                             # Grid only contains citizens — no is_citizen check needed
                             var c = s_cond[j]

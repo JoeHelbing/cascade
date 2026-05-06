@@ -337,10 +337,9 @@ struct SimState:
         # before the first schedule.step(). This consumes num_citizens
         # uniform(0,1) draws and populates _update_condition / activation /
         # etc., but condition remains "Support" since advance() has not run.
-        if self.rng.mode == RNG_PYTHON:
-            for i in range(self.num_citizens):
-                self.did_flip[i] = False
-                self._determine_condition(i)
+        for i in range(self.num_citizens):
+            self.did_flip[i] = False
+            self._determine_condition(i)
 
 
     # Is (bx, by) within Chebyshev `radius` of (ax, ay) on a 40x40 torus?
@@ -376,7 +375,7 @@ struct SimState:
             # include_center=False, so agents in the same cell as self are NOT
             # in self.neighbors. Excluding them here keeps vision counts
             # identical to Mesa's count_neigbhors loop.
-            if self.rng.mode == RNG_PYTHON and bx == ax and by == ay:
+            if bx == ax and by == ay:
                 continue
             var vision = self.citizen_vision if self.is_citizen[i] else self.security_vision
             if not self._in_vision(ax, ay, bx, by, vision):
