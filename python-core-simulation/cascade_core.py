@@ -4,12 +4,12 @@ import csv
 import math
 import random
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 from typing import Iterable, TextIO
 
 
-class Condition(str, Enum):
+class Condition(StrEnum):
     SUPPORT = "Support"
     OPPOSE = "Oppose"
     ACTIVE = "Active"
