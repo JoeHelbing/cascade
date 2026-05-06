@@ -13,6 +13,7 @@ run-gpu = { cmd = "build/mojo_gpu", depends-on = ["build-gpu"] }
 validate-cpu = "uv run autoresearch/validation/run_pipeline.py --stage cpu"
 validate-gpu = "uv run autoresearch/validation/run_pipeline.py --stage gpu"
 validate = "uv run autoresearch/validation/run_pipeline.py --stage all"
+search-gpu-seeds = { cmd = "build/mojo_gpu --seed-search > autoresearch/validation/mojo_gpu_seed_search_output.txt && uv run autoresearch/validation/analyze_gpu_seed_search.py", depends-on = ["build-gpu"] }
 
 [dependencies]
 mojo = ">=0.26.2.0,<0.27"

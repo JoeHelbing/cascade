@@ -147,6 +147,7 @@ def block_sim_kernel(
     trace_pos_x: UnsafePointer[Int32, MutAnyOrigin],
     trace_pos_y: UnsafePointer[Int32, MutAnyOrigin],
     num_sims: Int,
+    collect_trace: Int32,
 ):
     var sid = Int(block_idx.x)
     if sid >= num_sims:
@@ -209,7 +210,7 @@ def block_sim_kernel(
 
     barrier()
 
-    if trace_cond:
+    if collect_trace != 0:
         var tr_i0 = tid
         while tr_i0 < n_agents:
             var tr_idx0 = sid * MAX_TRACE_STEPS * MAX_AGENTS + tr_i0
@@ -496,7 +497,7 @@ def block_sim_kernel(
 
         barrier()
 
-        if trace_cond:
+        if collect_trace != 0:
             var trace_step = step + 1
             var tr_i = tid
             while tr_i < n_agents:
@@ -549,13 +550,18 @@ def main() raises:
     print("GPU:", ctx.name())
 
     var trace_validation = False
+    var seed_search = False
     var args = argv()
     for ai in range(1, len(args)):
         if args[ai] == String("--trace-validation"):
             trace_validation = True
+        elif args[ai] == String("--seed-search"):
+            seed_search = True
 
-    # Parameter sweep - 5 base seeds x 3 epsilon x 3 sec_density = 45 correctness sims
-    # For scale benchmark: 228 seeds x 3 x 3 = 2052 sims
+    # Parameter sweep - 5 base seeds x 3 epsilon x 3 sec_density = 45 correctness sims.
+    # Seed-search mode runs candidate seeds for 500 steps and prints every per-step
+    # metric row, including non-zero security-density cases, so Python can pick
+    # full-length oscillating seeds without rerunning the model on CPU.
     var benchmark_mode = False
     var seeds = List[Int]()
     seeds.append(42)
@@ -566,6 +572,10 @@ def main() raises:
     if trace_validation:
         seeds = List[Int]()
         seeds.append(16)
+    if seed_search:
+        seeds = List[Int]()
+        for s in range(500):
+            seeds.append(s)
     if benchmark_mode:
         for s in range(223):
             seeds.append(2000 + s)
@@ -593,6 +603,9 @@ def main() raises:
     if trace_validation:
         num_steps = 500
         threshold = Float32(2.5)
+    if seed_search:
+        num_steps = 500
+        threshold = Float32(2.94444)
     var max_jail = 100
     var vision = 7
     var total = len(seeds) * len(epsilons) * len(sec_densities)
@@ -775,7 +788,9 @@ def main() raises:
     var flat_step_size = total * MAX_STEPS * N_STEP_FIELDS
     var h_step_metrics = ctx.enqueue_create_host_buffer[DType.int32](flat_step_size)
     var d_step_metrics = ctx.enqueue_create_buffer[DType.int32](flat_step_size)
-    var flat_trace_size = total * MAX_TRACE_STEPS * MAX_AGENTS
+    var flat_trace_size = 1
+    if trace_validation:
+        flat_trace_size = total * MAX_TRACE_STEPS * MAX_AGENTS
     var h_trace_cond = ctx.enqueue_create_host_buffer[DType.int32](flat_trace_size)
     var h_trace_pos_x = ctx.enqueue_create_host_buffer[DType.int32](flat_trace_size)
     var h_trace_pos_y = ctx.enqueue_create_host_buffer[DType.int32](flat_trace_size)
@@ -794,6 +809,7 @@ def main() raises:
         d_step_metrics,
         d_trace_cond, d_trace_pos_x, d_trace_pos_y,
         total,
+        Int32(1) if trace_validation else Int32(0),
         grid_dim=total,
         block_dim=BLOCK_SIZE,
     )
@@ -863,6 +879,27 @@ def main() raises:
                         cond_name(h_trace_cond[tr_base + agent_id]),
                         sep="",
                     )
+
+    if seed_search:
+        print()
+        print("=== SEED SEARCH STEP CSV ===")
+        print("STEP,sim,seed,epsilon,security_density,step,active,support,oppose,jail,revolution")
+        var search_sim = 0
+        for si in range(len(seeds)):
+            for ei in range(len(epsilons)):
+                for di in range(len(sec_densities)):
+                    for s in range(num_steps):
+                        var sm_off = search_sim * MAX_STEPS * N_STEP_FIELDS + s * N_STEP_FIELDS
+                        print(
+                            "STEP,", search_sim, ",", seeds[si], ",", epsilons[ei], ",", sec_densities[di], ",", s, ",",
+                            h_step_metrics[sm_off + 0], ",",
+                            h_step_metrics[sm_off + 1], ",",
+                            h_step_metrics[sm_off + 2], ",",
+                            h_step_metrics[sm_off + 3], ",",
+                            h_step_metrics[sm_off + 4],
+                            sep="",
+                        )
+                    search_sim += 1
 
     # Print step-by-step data for first simulation as sample
     print()
