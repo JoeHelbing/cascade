@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import math
+import struct
 import sys
 from pathlib import Path
 
@@ -15,6 +16,7 @@ def _run_tests() -> None:
     test_initialization_uses_core_gaussian_mechanics()
     test_visible_counts_self_count_and_exclude_same_cell_occupants()
     test_decision_function_uses_single_draw_active_then_oppose()
+    test_float32_numeric_mode_uses_gpu_style_rounding()
     test_step_applies_simultaneous_citizen_updates_before_movement()
     test_security_arrests_active_neighbor_and_jails_with_inclusive_sentence()
     test_full_per_agent_trace_output_is_collected_and_writable()
@@ -65,6 +67,10 @@ def test_visible_counts_self_count_and_exclude_same_cell_occupants() -> None:
     assert counts.security == 1
 
 
+def _f32(value: float) -> float:
+    return struct.unpack("!f", struct.pack("!f", value))[0]
+
+
 def test_decision_function_uses_single_draw_active_then_oppose() -> None:
     # Arrange
     sim = ResistanceCascade(width=5, height=5, citizen_density=0, security_density=0, seed=1)
@@ -80,6 +86,41 @@ def test_decision_function_uses_single_draw_active_then_oppose() -> None:
     assert high_draw.condition is Condition.OPPOSE
     assert low_draw.condition is Condition.ACTIVE
     assert low_draw.oppose_level > low_draw.active_level
+
+
+def test_float32_numeric_mode_uses_gpu_style_rounding() -> None:
+    # Arrange
+    sim = ResistanceCascade(width=5, height=5, citizen_density=0, security_density=0, seed=1, numeric_mode="float32")
+    sim.citizens = [
+        Citizen(
+            position=(2, 2),
+            private_preference=_f32(-0.25),
+            epsilon=_f32(0.5),
+            epsilon_probability=_f32(1.0 / (1.0 + math.exp(-_f32(0.5)))),
+            oppose_threshold=_f32(1.25),
+            active_threshold=_f32(2.5),
+        ),
+        Citizen(
+            position=(3, 2),
+            private_preference=_f32(0.0),
+            epsilon=_f32(0.0),
+            epsilon_probability=_f32(0.5),
+            oppose_threshold=_f32(1.0),
+            active_threshold=_f32(2.0),
+            condition=Condition.ACTIVE,
+        ),
+    ]
+
+    # Act
+    decision = sim.decision_for(0, activation_draw=0.99)
+
+    # Assert
+    active_ratio = _f32(_f32(2.0) / _f32(1.0))
+    exponent = _f32(_f32(1.0) / _f32(_f32(_f32(0.5) * _f32(0.5)) + _f32(1.0)))
+    perception = _f32(_f32(2.0) ** exponent)
+    expected_opinion = _f32(_f32(0.25) + _f32(perception * active_ratio))
+    assert decision.opinion == expected_opinion
+    assert decision.activation == _f32(_f32(1.0) / _f32(_f32(1.0) + _f32(math.exp(_f32(-expected_opinion)))))
 
 
 def test_step_applies_simultaneous_citizen_updates_before_movement() -> None:

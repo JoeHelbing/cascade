@@ -739,6 +739,7 @@ def _run_python_state_trace_case() -> TraceChunk:
         max_iters=params["max_iters"],
         seed=GPU_TRACE_VALIDATION_SEED,
         collect_trace=True,
+        numeric_mode="float32",
     )
     sim.run(steps=params["max_iters"])
     rows = [dict((field, getattr(row, field)) for field in TRACE_FIELDS) for row in sim.trace]

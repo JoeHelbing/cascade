@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import math
 import random
+import struct
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -103,6 +104,11 @@ class TraceRow:
 TRACE_FIELDS = list(TraceRow.__dataclass_fields__.keys())
 
 
+def f32(value: float) -> float:
+    """Round a Python float through IEEE-754 Float32, matching GPU scalar storage."""
+    return struct.unpack("!f", struct.pack("!f", float(value)))[0]
+
+
 class ResistanceCascade:
     def __init__(
         self,
@@ -122,7 +128,11 @@ class ResistanceCascade:
         max_iters: int = 1000,
         seed: int | None = None,
         collect_trace: bool = True,
+        numeric_mode: str = "float64",
     ) -> None:
+        if numeric_mode not in {"float64", "float32"}:
+            raise ValueError("numeric_mode must be 'float64' or 'float32'")
+        self.numeric_mode = numeric_mode
         self.width = width
         self.height = height
         self.citizen_vision = citizen_vision
@@ -133,7 +143,7 @@ class ResistanceCascade:
         self.standard_deviation = standard_deviation
         self.epsilon = epsilon
         self.threshold = threshold
-        self.threshold_constant_sigmoid = self.sigmoid(threshold)
+        self.threshold_constant_sigmoid = self._sigmoid(threshold)
         self.max_iters = max_iters
         self.iteration = 0
         self.revolution = False
@@ -160,6 +170,15 @@ class ResistanceCascade:
     def sigmoid(x: float) -> float:
         return 1.0 / (1.0 + math.exp(-x))
 
+    def _num(self, value: float) -> float:
+        return f32(value) if self.numeric_mode == "float32" else float(value)
+
+    def _sigmoid(self, x: float) -> float:
+        if self.numeric_mode == "float32":
+            x32 = f32(x)
+            return f32(f32(1.0) / f32(f32(1.0) + f32(math.exp(f32(-x32)))))
+        return self.sigmoid(x)
+
     @property
     def citizen_count(self) -> int:
         return len(self.citizens)
@@ -168,17 +187,19 @@ class ResistanceCascade:
         return (self.random.randrange(self.width), self.random.randrange(self.height))
 
     def _make_citizen(self) -> Citizen:
-        private_preference = self.random.gauss(
-            self.private_preference_distribution_mean,
-            self.standard_deviation,
+        private_preference = self._num(
+            self.random.gauss(
+                self.private_preference_distribution_mean,
+                self.standard_deviation,
+            )
         )
-        epsilon = self.random.gauss(0.0, self.epsilon)
-        thresholds = [self.random.gauss(self.threshold, epsilon) for _ in range(2)]
+        epsilon = self._num(self.random.gauss(0.0, self.epsilon))
+        thresholds = [self._num(self.random.gauss(self.threshold, epsilon)) for _ in range(2)]
         return Citizen(
             position=self._random_position(),
             private_preference=private_preference,
             epsilon=epsilon,
-            epsilon_probability=self.sigmoid(epsilon),
+            epsilon_probability=self._sigmoid(epsilon),
             oppose_threshold=min(thresholds),
             active_threshold=max(thresholds),
         )
@@ -186,9 +207,11 @@ class ResistanceCascade:
     def _make_security(self) -> Security:
         return Security(
             position=self._random_position(),
-            private_preference=self.random.gauss(
-                self.private_preference_distribution_mean,
-                self.standard_deviation,
+            private_preference=self._num(
+                self.random.gauss(
+                    self.private_preference_distribution_mean,
+                    self.standard_deviation,
+                )
             ),
             vision=self.security_vision,
         )
@@ -238,17 +261,33 @@ class ResistanceCascade:
     def decision_for(self, citizen_id: int, activation_draw: float | None = None) -> Decision:
         citizen = self.citizens[citizen_id]
         counts = self.visible_counts(citizen_id)
-        active_ratio = (counts.active + counts.oppose) / counts.support
-        perception = (counts.active + counts.oppose * citizen.epsilon_probability) ** (
-            (citizen.epsilon**2 + 1.0) ** -1
-        )
-        arrest_prob = 1.0 - math.exp(
-            -2.3 * (counts.security / counts.active) * (2.0 * citizen.epsilon_probability)
-        )
-        opinion = -citizen.private_preference + perception * active_ratio
-        activation = self.sigmoid(opinion)
-        active_level = self.sigmoid(opinion - citizen.active_threshold) - arrest_prob
-        oppose_level = self.sigmoid(opinion - citizen.oppose_threshold) - arrest_prob
+        if self.numeric_mode == "float32":
+            active_ratio = f32(f32(float(counts.active + counts.oppose)) / f32(float(counts.support)))
+            base = f32(f32(float(counts.active)) + f32(f32(float(counts.oppose)) * f32(citizen.epsilon_probability)))
+            exponent = f32(f32(1.0) / f32(f32(f32(citizen.epsilon) * f32(citizen.epsilon)) + f32(1.0)))
+            perception = f32(base**exponent)
+            arrest_arg = f32(
+                f32(f32(-2.3) * f32(float(counts.security)))
+                / f32(float(counts.active))
+            )
+            arrest_arg = f32(f32(arrest_arg * f32(2.0)) * f32(citizen.epsilon_probability))
+            arrest_prob = f32(f32(1.0) - f32(math.exp(arrest_arg)))
+            opinion = f32(f32(-citizen.private_preference) + f32(perception * active_ratio))
+            activation = self._sigmoid(opinion)
+            active_level = f32(self._sigmoid(f32(opinion - citizen.active_threshold)) - arrest_prob)
+            oppose_level = f32(self._sigmoid(f32(opinion - citizen.oppose_threshold)) - arrest_prob)
+        else:
+            active_ratio = (counts.active + counts.oppose) / counts.support
+            perception = (counts.active + counts.oppose * citizen.epsilon_probability) ** (
+                (citizen.epsilon**2 + 1.0) ** -1
+            )
+            arrest_prob = 1.0 - math.exp(
+                -2.3 * (counts.security / counts.active) * (2.0 * citizen.epsilon_probability)
+            )
+            opinion = -citizen.private_preference + perception * active_ratio
+            activation = self.sigmoid(opinion)
+            active_level = self.sigmoid(opinion - citizen.active_threshold) - arrest_prob
+            oppose_level = self.sigmoid(opinion - citizen.oppose_threshold) - arrest_prob
         draw = self.random.uniform(0.0, 1.0) if activation_draw is None else activation_draw
 
         if active_level > draw:
