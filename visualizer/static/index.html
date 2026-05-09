@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>core_cpu_mojo Visualizer</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="shell">
+    <section class="panel controls-panel">
+      <div class="eyebrow">Native Mojo ABM</div>
+      <h1>core_cpu_mojo Visualizer</h1>
+      <p class="lede">Change parameters, run the compiled pure Mojo CPU simulation, and animate up to 500 trace steps.</p>
+
+      <form id="parameter-form" class="control-grid">
+        <label>Seed <input name="seed" type="number" value="42" min="0" max="999999"></label>
+        <label>Steps <input name="max_iters" type="number" value="200" min="0" max="500"></label>
+        <label>Width <input name="width" type="number" value="40" min="8" max="80"></label>
+        <label>Height <input name="height" type="number" value="40" min="8" max="80"></label>
+        <label>Citizen density <input name="citizen_density" type="number" value="0.7" min="0" max="1" step="0.01"></label>
+        <label>Security density <input name="security_density" type="number" value="0.0" min="0" max="0.25" step="0.01"></label>
+        <label>Citizen vision <input name="citizen_vision" type="number" value="7" min="1" max="20"></label>
+        <label>Security vision <input name="security_vision" type="number" value="7" min="1" max="20"></label>
+        <label>Epsilon <input name="epsilon" type="number" value="0.5" min="0.01" max="3" step="0.01"></label>
+        <label>Threshold <input name="threshold" type="number" value="3.66356" min="-5" max="8" step="0.01"></label>
+        <label>Preference mean <input name="private_preference_distribution_mean" type="number" value="0.0" min="-5" max="5" step="0.1"></label>
+        <label>Std dev <input name="standard_deviation" type="number" value="1.0" min="0.01" max="5" step="0.01"></label>
+        <label>Max jail <input name="max_jail_term" type="number" value="100" min="0" max="500"></label>
+        <label class="checkbox"><input name="movement" type="checkbox" checked> Movement</label>
+      </form>
+
+      <button id="run-button" class="primary">Run simulation</button>
+      <p id="status" class="status">Ready. Server calls <code>build/core_cpu_mojo</code>.</p>
+    </section>
+
+    <section class="panel stage-panel">
+      <div class="stage-header">
+        <div>
+          <div class="eyebrow">Spatial trace</div>
+          <h2 id="frame-title">No run yet</h2>
+        </div>
+        <div class="legend" aria-label="condition legend">
+          <span><i class="support"></i>Support</span>
+          <span><i class="oppose"></i>Oppose</span>
+          <span><i class="active"></i>Active</span>
+          <span><i class="jailed"></i>Jailed</span>
+          <span><i class="security"></i>Security</span>
+        </div>
+      </div>
+      <canvas id="simulation-canvas" width="900" height="680"></canvas>
+      <div class="transport">
+        <button id="play-button" disabled>Play</button>
+        <input id="step-slider" type="range" min="0" max="0" value="0" disabled>
+        <output id="step-output">0 / 0</output>
+        <label>Speed <input id="speed" type="range" min="1" max="20" value="8"></label>
+      </div>
+      <div id="metrics" class="metrics"></div>
+    </section>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>

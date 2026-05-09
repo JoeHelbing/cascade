@@ -46,10 +46,12 @@ pixi run validate       # both boundaries in order
 
 ```bash
 pixi install
-pixi run build-cpu      # compile mojo_cpu.mojo -> build/mojo_cpu
-pixi run build-gpu      # compile mojo_gpu.mojo -> build/mojo_gpu
-pixi run validate-cpu   # Python-core -> Mojo CPU Parquet SHA256 correctness
-pixi run validate-gpu   # Mojo CPU/GPU-RNG -> Mojo GPU aggregate validation
+pixi run build-cpu           # compile mojo_cpu.mojo -> build/mojo_cpu
+pixi run build-core-cpu      # compile core_cpu_mojo.mojo -> build/core_cpu_mojo
+pixi run visualize-core-cpu  # browser UI for changing core CPU params and replaying traces
+pixi run build-gpu           # compile mojo_gpu.mojo -> build/mojo_gpu
+pixi run validate-cpu        # Python-core -> Mojo CPU Parquet SHA256 correctness
+pixi run validate-gpu        # Mojo CPU/GPU-RNG -> Mojo GPU aggregate validation
 ```
 
 ## Branch policy
