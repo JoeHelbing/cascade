@@ -11,7 +11,8 @@ and TraceRow-compatible CSV output.
 from std.collections import List
 from std.sys import argv, has_accelerator
 from std.time import perf_counter_ns
-from std.math import exp, log, sqrt
+from std.math import exp
+from std.random import seed as random_seed, random_float64, randn_float64
 
 
 comptime SUPPORT: Int = 0
@@ -30,48 +31,12 @@ def sigmoid(x: Float64) -> Float64:
     return 1.0 / (1.0 + exp(-x))
 
 
-@always_inline
-def lcg_next(state: UInt64) -> UInt64:
-    return state * 6364136223846793005 + 1442695040888963407
+def _randrange(max_val: Int) -> Int:
+    return Int(random_float64(0.0, Float64(max_val)))
 
 
-struct NativeRng:
-    var state: UInt64
-
-    def __init__(out self, seed: Int):
-        # Avoid the all-zero-looking first few low bits and keep seed 0 useful.
-        self.state = UInt64(seed) ^ UInt64(0x9E3779B97F4A7C15)
-
-    def next_u64(mut self) -> UInt64:
-        self.state = lcg_next(self.state)
-        return self.state
-
-    def random(mut self) -> Float64:
-        # 53 random mantissa bits in [0, 1).
-        return Float64(self.next_u64() >> 11) * (1.0 / 9007199254740992.0)
-
-    def randrange(mut self, max_val: Int) -> Int:
-        # Use high bits for bounded integer draws. The low bits of an LCG are
-        # highly patterned; modulo on those bits made initial positions fall on
-        # a small diagonal cycle for power-of-two grid sizes.
-        return Int((self.next_u64() >> 32) % UInt64(max_val))
-
-    def randint(mut self, min_val: Int, max_val: Int) -> Int:
-        return min_val + self.randrange(max_val - min_val + 1)
-
-    def gauss(mut self, mean: Float64, std: Float64) -> Float64:
-        # Marsaglia polar transform. This is native Mojo, deterministic, and
-        # preserves the Gaussian initialization framework of the Python core.
-        var v1: Float64
-        var rsq: Float64
-        while True:
-            v1 = self.random() * 2.0 - 1.0
-            var v2 = self.random() * 2.0 - 1.0
-            rsq = v1 * v1 + v2 * v2
-            if rsq > 0.0 and rsq < 1.0:
-                break
-        var fac = sqrt(-2.0 * log(rsq) / rsq)
-        return mean + std * v1 * fac
+def _randint(min_val: Int, max_val: Int) -> Int:
+    return min_val + _randrange(max_val - min_val + 1)
 
 
 @always_inline
@@ -130,7 +95,6 @@ struct CoreSim:
     var running: Bool
     var iteration: Int
     var max_iters: Int
-    var rng: NativeRng
 
     def __init__(
         out self,
@@ -160,7 +124,7 @@ struct CoreSim:
         self.revolution = False
         self.running = True
         self.iteration = 0
-        self.rng = NativeRng(seed)
+        random_seed(seed)
 
         var cells = width * height
         self.num_citizens = Int(Float64(cells) * citizen_density + 0.5)
@@ -201,12 +165,12 @@ struct CoreSim:
 
         for i in range(self.num_citizens):
             self._place_random_empty(i, occupied)
-            self.private_pref[i] = self.rng.gauss(pp_mean, standard_deviation)
-            var e = self.rng.gauss(0.0, model_eps)
+            self.private_pref[i] = randn_float64(pp_mean, standard_deviation)
+            var e = randn_float64(0.0, model_eps)
             self.eps[i] = e
             self.eps_prob[i] = sigmoid(e)
-            var t1 = self.rng.gauss(threshold, e)
-            var t2 = self.rng.gauss(threshold, e)
+            var t1 = randn_float64(threshold, e)
+            var t2 = randn_float64(threshold, e)
             if t1 < t2:
                 self.oppose_th[i] = t1
                 self.active_th[i] = t2
@@ -219,14 +183,14 @@ struct CoreSim:
             self.is_citizen[i] = False
             self.cond[i] = SECURITY_COND
             self.next_cond[i] = SECURITY_COND
-            self.private_pref[i] = self.rng.gauss(pp_mean, standard_deviation)
+            self.private_pref[i] = randn_float64(pp_mean, standard_deviation)
 
         for i in range(self.num_citizens):
             self.did_flip[i] = False
             self._determine_condition(i)
 
     def _place_random_empty(mut self, i: Int, mut occupied: List[Bool]):
-        var start = self.rng.randrange(self.width * self.height)
+        var start = _randrange(self.width * self.height)
         for offset in range(self.width * self.height):
             var cell = (start + offset) % (self.width * self.height)
             if not occupied[cell]:
@@ -300,7 +264,7 @@ struct CoreSim:
         var activation = sigmoid(opinion)
         var al = sigmoid(opinion - self.active_th[i]) - arrest
         var ol = sigmoid(opinion - self.oppose_th[i]) - arrest
-        var draw = self.rng.random()
+        var draw = random_float64()
 
         self.perception[i] = perception_val
         self.arrest_prob[i] = arrest
@@ -320,13 +284,13 @@ struct CoreSim:
             self.next_cond[i] = SUPPORT
 
     def _random_position(mut self, i: Int):
-        self.pos_x[i] = self.rng.randrange(self.width)
-        self.pos_y[i] = self.rng.randrange(self.height)
+        self.pos_x[i] = _randrange(self.width)
+        self.pos_y[i] = _randrange(self.height)
         self.has_position[i] = True
 
     def _random_move(mut self, i: Int):
-        var dx = self.rng.randrange(3) - 1
-        var dy = self.rng.randrange(3) - 1
+        var dx = _randrange(3) - 1
+        var dy = _randrange(3) - 1
         self.pos_x[i] = (self.pos_x[i] + dx + self.width) % self.width
         self.pos_y[i] = (self.pos_y[i] + dy + self.height) % self.height
 
@@ -366,15 +330,11 @@ struct CoreSim:
 
             var chosen = -1
             if len(active_candidates) > 0:
-                chosen = active_candidates[
-                    self.rng.randrange(len(active_candidates))
-                ]
+                chosen = active_candidates[_randrange(len(active_candidates))]
             elif len(oppose_candidates) > 0:
-                chosen = oppose_candidates[
-                    self.rng.randrange(len(oppose_candidates))
-                ]
+                chosen = oppose_candidates[_randrange(len(oppose_candidates))]
             if chosen >= 0:
-                self.jail_sent[chosen] = self.rng.randint(0, self.max_jail)
+                self.jail_sent[chosen] = _randint(0, self.max_jail)
                 self.cond[chosen] = JAILED
                 self.next_cond[chosen] = SUPPORT
                 self.has_position[chosen] = False
@@ -654,11 +614,10 @@ def main() raises:
         sep="",
     )
     var t_start = perf_counter_ns()
-    var seed_rng = NativeRng(Int(t_start & 0x7FFFFFFF))
     for si in range(len(config.seeds)):
         var seed = config.seeds[si]
         if config.random_seed:
-            seed = seed_rng.randrange(1000000)
+            seed = Int((perf_counter_ns() + UInt(si * 7919)) % UInt(1000000))
         var sim = CoreSim(
             seed=seed,
             width=config.width,

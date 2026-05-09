@@ -7,7 +7,7 @@ version = "0.1.0"
 
 [tasks]
 build-cpu = "mojo build mojo_cpu.mojo -o build/mojo_cpu"
-build-core-cpu = "mojo build core_cpu_mojo.mojo -o build/core_cpu_mojo"
+build-core-cpu = "mojo build core_cpu_mojo.mojo -o build/core_cpu_mojo -Xlinker -lm"
 build-gpu = "mojo build mojo_gpu.mojo -o build/mojo_gpu"
 run-cpu = { cmd = "build/mojo_cpu", depends-on = ["build-cpu"] }
 run-core-cpu = { cmd = "build/core_cpu_mojo", depends-on = ["build-core-cpu"] }

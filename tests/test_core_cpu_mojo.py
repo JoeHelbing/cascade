@@ -16,10 +16,18 @@ class CoreCpuMojoTests(unittest.TestCase):
         self.assertNotIn("std.python", source)
         self.assertNotIn("Python.import_module", source)
 
+    def test_source_uses_std_random_for_native_rng(self):
+        source = CORE_SOURCE.read_text()
+        self.assertIn("from std.random import", source)
+        self.assertIn("randn_float64", source)
+        self.assertIn("random_float64", source)
+        self.assertNotIn("lcg_next", source)
+        self.assertNotIn("struct NativeRng", source)
+
     @classmethod
     def setUpClass(cls):
         subprocess.run(
-            ["pixi", "run", "mojo", "build", "core_cpu_mojo.mojo", "-o", str(CORE_BINARY)],
+            ["pixi", "run", "mojo", "build", "core_cpu_mojo.mojo", "-o", str(CORE_BINARY), "-Xlinker", "-lm"],
             cwd=REPO_ROOT,
             check=True,
         )
