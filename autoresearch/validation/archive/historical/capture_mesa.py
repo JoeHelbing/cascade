@@ -24,7 +24,7 @@ Decisions captured
 - per step, per security arresting: `choice(actives/opposed)` + `randint`.
 
 Usage:
-    uv run autoresearch/validation/capture_mesa.py \
+    pixi run python autoresearch/validation/capture_mesa.py \
         --seeds autoresearch/validation/picked_seeds.json \
         --out   autoresearch/validation/captures/
 """

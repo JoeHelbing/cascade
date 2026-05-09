@@ -14,7 +14,7 @@ Exit 0 if every picked seed reaches revolution in both models. We do NOT
 assert on bit-exactness of trajectories -- the two models structurally differ.
 
 Usage:
-    uv run autoresearch/validation/compare_mojo_cpu.py
+    pixi run python autoresearch/validation/compare_mojo_cpu.py
 """
 from __future__ import annotations
 

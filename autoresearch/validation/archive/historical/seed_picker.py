@@ -11,7 +11,7 @@ activates is vacuous -- all conditions stay Support, so any bug in the
 activation decision would go undetected.
 
 Usage:
-    uv run autoresearch/validation/seed_picker.py --n-seeds 200 --n-keep 12
+    pixi run python autoresearch/validation/seed_picker.py --n-seeds 200 --n-keep 12
 """
 from __future__ import annotations
 

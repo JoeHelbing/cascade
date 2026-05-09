@@ -15,7 +15,7 @@ Writes a JSON with the top-N interesting seeds + the parameter triple at which
 they were run. Downstream capture / mojo_cpu runs pick this up.
 
 Usage:
-    uv run autoresearch/validation/sweep_oscillating.py --n-seeds 200 --n-keep 6
+    pixi run python autoresearch/validation/sweep_oscillating.py --n-seeds 200 --n-keep 6
 """
 from __future__ import annotations
 

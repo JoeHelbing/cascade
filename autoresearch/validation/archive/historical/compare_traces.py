@@ -23,7 +23,7 @@ the number of divergent rows printed.
 Exit code 0 if traces agree within tolerance on every row; 1 otherwise.
 
 Usage:
-    uv run autoresearch/validation/compare_traces.py \
+    pixi run python autoresearch/validation/compare_traces.py \
         --ref autoresearch/validation/python_trace.parquet \
         --cand autoresearch/validation/mojo_cpu_trace.parquet
 """

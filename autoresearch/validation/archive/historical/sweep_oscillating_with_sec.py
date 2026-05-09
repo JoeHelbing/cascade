@@ -11,7 +11,7 @@ traces for rendering, (c) determine whether the mojo_cpu port needs the
 arrest/jail code paths to match the user's "200+ step oscillation" goal.
 
 Usage:
-    uv run autoresearch/validation/sweep_oscillating_with_sec.py \
+    pixi run python autoresearch/validation/sweep_oscillating_with_sec.py \
         --n-seeds 200 --n-keep 6
 """
 from __future__ import annotations

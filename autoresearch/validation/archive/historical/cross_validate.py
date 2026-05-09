@@ -8,7 +8,7 @@ to verify the math/logic produces identical results.
 This isolates the RNG difference by using Python's actual random values.
 
 Usage:
-    uv run cross_validate.py
+    pixi run python cross_validate.py
 """
 import sys
 import math

@@ -7,13 +7,24 @@ version = "0.1.0"
 
 [tasks]
 build-cpu = "mojo build mojo_cpu.mojo -o build/mojo_cpu"
+build-core-cpu = "mojo build core_cpu_mojo.mojo -o build/core_cpu_mojo"
 build-gpu = "mojo build mojo_gpu.mojo -o build/mojo_gpu"
 run-cpu = { cmd = "build/mojo_cpu", depends-on = ["build-cpu"] }
+run-core-cpu = { cmd = "build/core_cpu_mojo", depends-on = ["build-core-cpu"] }
 run-gpu = { cmd = "build/mojo_gpu", depends-on = ["build-gpu"] }
-validate-cpu = "uv run autoresearch/validation/run_pipeline.py --stage cpu"
-validate-gpu = "uv run autoresearch/validation/run_pipeline.py --stage gpu"
-validate = "uv run autoresearch/validation/run_pipeline.py --stage all"
-search-gpu-seeds = { cmd = "build/mojo_gpu --seed-search > autoresearch/validation/mojo_gpu_seed_search_output.txt && uv run autoresearch/validation/analyze_gpu_seed_search.py", depends-on = ["build-gpu"] }
+validate-cpu = "python autoresearch/validation/run_pipeline.py --stage cpu"
+validate-gpu = "python autoresearch/validation/run_pipeline.py --stage gpu"
+validate = "python autoresearch/validation/run_pipeline.py --stage all"
+search-gpu-seeds = { cmd = "build/mojo_gpu --seed-search > autoresearch/validation/mojo_gpu_seed_search_output.txt && python autoresearch/validation/analyze_gpu_seed_search.py", depends-on = ["build-gpu"] }
 
 [dependencies]
-mojo = ">=0.26.2.0,<0.27"
+mojo = "==1.0.0b1"
+numpy = ">=2.4.3,<3"
+pandas = ">=3.0.2,<4"
+pyarrow = ">=24.0.0,<25"
+scipy = ">=1.17.1,<2"
+matplotlib = ">=3.10.9,<4"
+seaborn = ">=0.13.2,<0.14"
+plotly = ">=6.6.0,<7"
+statsmodels = ">=0.14.6,<0.15"
+mesa = "==1.2.1"

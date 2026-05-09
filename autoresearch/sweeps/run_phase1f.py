@@ -115,7 +115,7 @@ def main():
     params_file = autoresearch_dir / "configs" / "agent_sim_params.json"
     if not params_file.exists():
         print(f"ERROR: {params_file} not found")
-        print("Generate it with: uv run autoresearch/sweeps/generate_agent_params.py")
+        print("Generate it with: pixi run python autoresearch/sweeps/generate_agent_params.py")
         sys.exit(1)
 
     with open(params_file) as f:

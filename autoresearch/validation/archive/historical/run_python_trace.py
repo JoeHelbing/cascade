@@ -12,7 +12,7 @@ Also dumps the model-level data (active count, support count, etc.) into
 a sibling parquet file for aggregate comparison.
 
 Usage:
-    uv run autoresearch/validation/run_python_trace.py \
+    pixi run python autoresearch/validation/run_python_trace.py \
         --seeds autoresearch/validation/picked_seeds.json \
         --out autoresearch/validation/python_trace.parquet
 """

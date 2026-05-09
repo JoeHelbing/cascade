@@ -12,8 +12,8 @@ same protocol can be ported into mojo_cpu (read the same log, serve values,
 run Mesa's deterministic math) and yield a bit-exact mojo trace.
 
 Usage:
-    uv run autoresearch/validation/replay_python.py
-    uv run autoresearch/validation/compare_traces.py \
+    pixi run python autoresearch/validation/replay_python.py
+    pixi run python autoresearch/validation/compare_traces.py \
         --ref autoresearch/validation/python_trace.parquet \
         --cand autoresearch/validation/replay_trace.parquet
 """

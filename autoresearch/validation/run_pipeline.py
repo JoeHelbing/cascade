@@ -652,14 +652,18 @@ def compare_cpu_gpu_aggregates(cpu_rows: list[AggregateRow], gpu_rows: list[Aggr
 def validate_cpu(args: argparse.Namespace) -> dict[str, str]:
     """Validate mojo_cpu.mojo --rng python against python-core-simulation Parquet."""
     print("\n=== CPU validation: python-core-simulation -> mojo_cpu --rng python ===", flush=True)
+    run(["pixi", "run", "python", "tests/test_python_core_simulation.py"])
     run([
         "pixi",
         "run",
         "python",
         "-m",
         "unittest",
-        "tests.test_python_core_simulation",
-        "tests.test_mojo_cpu_cli",
+        "discover",
+        "-s",
+        "tests",
+        "-p",
+        "test_mojo_cpu_cli.py",
     ])
     run(["pixi", "run", "build-cpu"])
 

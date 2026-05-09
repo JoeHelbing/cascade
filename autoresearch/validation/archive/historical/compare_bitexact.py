@@ -9,7 +9,7 @@ Joins on (seed, step, agent_id) and compares Float64 fields by raw IEEE 754
 bit pattern. Exit 0 iff every joinable row agrees on every tracked column.
 
 Usage:
-    uv run autoresearch/validation/compare_bitexact.py
+    pixi run python autoresearch/validation/compare_bitexact.py
 """
 from __future__ import annotations
 

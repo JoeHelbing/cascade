@@ -10,7 +10,7 @@ original Python model, then the Mojo math is correct -- any differences
 in Mojo output are solely due to RNG.
 
 Usage:
-    uv run cross_validate_inject.py
+    pixi run python cross_validate_inject.py
 """
 import sys
 import math

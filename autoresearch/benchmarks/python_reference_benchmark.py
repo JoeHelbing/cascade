@@ -10,11 +10,11 @@ and measures wall clock time. This is the evaluation harness — DO NOT MODIFY
 during optimization work.
 
 Usage:
-    uv run autoresearch/benchmarks/python_reference_benchmark.py
-    uv run autoresearch/benchmarks/python_reference_benchmark.py --baseline
-    uv run autoresearch/benchmarks/python_reference_benchmark.py --compare
-    uv run autoresearch/benchmarks/python_reference_benchmark.py --steps 100
-    uv run autoresearch/benchmarks/python_reference_benchmark.py --json
+    pixi run python autoresearch/benchmarks/python_reference_benchmark.py
+    pixi run python autoresearch/benchmarks/python_reference_benchmark.py --baseline
+    pixi run python autoresearch/benchmarks/python_reference_benchmark.py --compare
+    pixi run python autoresearch/benchmarks/python_reference_benchmark.py --steps 100
+    pixi run python autoresearch/benchmarks/python_reference_benchmark.py --json
 """
 import argparse
 import hashlib

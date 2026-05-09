@@ -21,7 +21,7 @@ from std.gpu import block_idx, thread_idx, block_dim, global_idx
 from std.gpu.sync import barrier
 from std.gpu.memory import AddressSpace
 from std.memory import stack_allocation
-from std.os.atomic import Atomic
+from std.atomic import Atomic
 
 
 # ============================================================
@@ -44,9 +44,9 @@ comptime GRID_H: Int = 33
 comptime GRID_SIZE: Int = GRID_W * GRID_H  # 1089 cells
 
 comptime MAX_AGENTS: Int = 1024  # Fits in shared memory (1024 * ~56B = 56KB < 100KB)
-comptime BLOCK_SIZE: Int = 256   # Threads per block (each handles ~4 agents)
-comptime MAX_PER_CELL: Int = 8   # Max agents per grid cell
-comptime MAX_STEPS: Int = 500    # Max steps per simulation (for step_metrics buffer sizing)
+comptime BLOCK_SIZE: Int = 256  # Threads per block (each handles ~4 agents)
+comptime MAX_PER_CELL: Int = 8  # Max agents per grid cell
+comptime MAX_STEPS: Int = 500  # Max steps per simulation (for step_metrics buffer sizing)
 comptime MAX_TRACE_STEPS: Int = MAX_STEPS + 1  # Step 0 initial state + each executed step
 comptime N_STEP_FIELDS: Int = 5  # Per-step model metrics: active, support, oppose, jail, revolution
 
@@ -55,22 +55,25 @@ comptime N_STEP_FIELDS: Int = 5  # Per-step model metrics: active, support, oppo
 # LCG random number generator (deterministic, GPU-safe)
 # ============================================================
 
+
 @always_inline
-fn lcg_next(state: UInt64) -> UInt64:
+def lcg_next(state: UInt64) -> UInt64:
     return state * 6364136223846793005 + 1442695040888963407
 
 
 @always_inline
-fn lcg_float(state: UInt64) -> Float32:
+def lcg_float(state: UInt64) -> Float32:
     return Float32(Int64((state >> 33) & 0x7FFFFFFF)) / Float32(2147483648.0)
 
 
 @always_inline
-fn lcg_int(state: UInt64, max_val: Int) -> Int:
+def lcg_int(state: UInt64, max_val: Int) -> Int:
     return Int((state >> 33) % UInt64(max_val))
 
 
-fn lcg_gauss_val(state: UInt64, mean: Float32, std: Float32) -> Tuple[Float32, UInt64]:
+def lcg_gauss_val(
+    state: UInt64, mean: Float32, std: Float32
+) -> Tuple[Float32, UInt64]:
     """Marsaglia polar method: generates one Gaussian sample.
     Returns (value, new_state). No trig needed -- GPU compatible."""
     var s = state
@@ -90,7 +93,7 @@ fn lcg_gauss_val(state: UInt64, mean: Float32, std: Float32) -> Tuple[Float32, U
 
 
 @always_inline
-fn sigmoid_f32(x: Float32) -> Float32:
+def sigmoid_f32(x: Float32) -> Float32:
     return 1.0 / (1.0 + exp(-x))
 
 
@@ -109,6 +112,7 @@ def cond_name(c: Int32) -> String:
 # ============================================================
 # GPU Kernel: One block per simulation
 # ============================================================
+
 
 def block_sim_kernel(
     # Per-sim params: [sim_id * 9 + param_idx]
@@ -175,18 +179,26 @@ def block_sim_kernel(
     # Note: is_citizen check replaced by j < n_citizens (static layout)
     # Condition values 0-4 fit in int8 (saves 3KB: 4KB -> 1KB)
     var s_cond = stack_allocation[
-        MAX_AGENTS, Scalar[DType.int8], address_space=AddressSpace.SHARED,
+        MAX_AGENTS,
+        Scalar[DType.int8],
+        address_space=AddressSpace.SHARED,
     ]()
     var s_grid_counts = stack_allocation[
-        GRID_SIZE, Scalar[DType.int16], address_space=AddressSpace.SHARED,
+        GRID_SIZE,
+        Scalar[DType.int16],
+        address_space=AddressSpace.SHARED,
     ]()
     # Per-cell security count: sum over vision to get total security in neighborhood
     var s_sec_counts = stack_allocation[
-        GRID_SIZE, Scalar[DType.int16], address_space=AddressSpace.SHARED,
+        GRID_SIZE,
+        Scalar[DType.int16],
+        address_space=AddressSpace.SHARED,
     ]()
     # grid_cells in shared memory: 1089 * 8 * 2 = 17KB (int16 sufficient for 0..761)
     var s_grid_cells = stack_allocation[
-        GRID_SIZE * MAX_PER_CELL, Scalar[DType.int16], address_space=AddressSpace.SHARED,
+        GRID_SIZE * MAX_PER_CELL,
+        Scalar[DType.int16],
+        address_space=AddressSpace.SHARED,
     ]()
 
     # Use metrics[moff + 4] as revolution flag (global memory, visible to all threads)
@@ -285,10 +297,15 @@ def block_sim_kernel(
                         # Only iterate citizen agents in this cell
                         var cnt = Int(s_grid_counts[cell])
                         for slot in range(cnt):
-                            var j = Int(s_grid_cells[cell * MAX_PER_CELL + slot])
+                            var j = Int(
+                                s_grid_cells[cell * MAX_PER_CELL + slot]
+                            )
                             if j == i:
                                 continue
-                            if Int(pos_x[off + j]) == ax and Int(pos_y[off + j]) == ay:
+                            if (
+                                Int(pos_x[off + j]) == ax
+                                and Int(pos_y[off + j]) == ay
+                            ):
                                 continue
                             # Grid only contains citizens — no is_citizen check needed
                             var c = s_cond[j]
@@ -301,9 +318,19 @@ def block_sim_kernel(
 
                 var ep = eps_arr[ai]
                 var ep_prob = eps_prob_arr[ai]
-                var active_ratio = Float32(actives + opposed) / Float32(support_cnt)
-                var perception = (Float32(actives) + Float32(opposed) * ep_prob) ** (1.0 / (ep * ep + 1.0))
-                var arrest_prob = 1.0 - exp(Float32(-2.3) * Float32(security) / Float32(actives) * 2.0 * ep_prob)
+                var active_ratio = Float32(actives + opposed) / Float32(
+                    support_cnt
+                )
+                var perception = (
+                    Float32(actives) + Float32(opposed) * ep_prob
+                ) ** (1.0 / (ep * ep + 1.0))
+                var arrest_prob = 1.0 - exp(
+                    Float32(-2.3)
+                    * Float32(security)
+                    / Float32(actives)
+                    * 2.0
+                    * ep_prob
+                )
                 var opinion = -private_pref[ai] + perception * active_ratio
 
                 var rng_state = rng_arr[ai]
@@ -312,8 +339,12 @@ def block_sim_kernel(
                 rng_arr[ai] = rng_state
 
                 activation_val[ai] = sigmoid_f32(opinion)
-                var active_level = sigmoid_f32(opinion - active_th[ai]) - arrest_prob
-                var oppose_level = sigmoid_f32(opinion - oppose_th[ai]) - arrest_prob
+                var active_level = (
+                    sigmoid_f32(opinion - active_th[ai]) - arrest_prob
+                )
+                var oppose_level = (
+                    sigmoid_f32(opinion - oppose_th[ai]) - arrest_prob
+                )
 
                 if active_level > rand_act:
                     next_cond[ai] = ACTIVE
@@ -398,12 +429,17 @@ def block_sim_kernel(
                         var cell = cy * GRID_W + cx
                         var cnt = Int(s_grid_counts[cell])
                         for slot in range(cnt):
-                            var j = Int(s_grid_cells[cell * MAX_PER_CELL + slot])
+                            var j = Int(
+                                s_grid_cells[cell * MAX_PER_CELL + slot]
+                            )
                             # Grid only contains citizens — no type check needed
                             if cond[off + j] == ACTIVE:
                                 if j > best_active:
                                     best_active = j
-                            elif cond[off + j] == OPPOSE and activation_val[off + j] > threshold_sig:
+                            elif (
+                                cond[off + j] == OPPOSE
+                                and activation_val[off + j] > threshold_sig
+                            ):
                                 if j > best_oppose:
                                     best_oppose = j
 
@@ -434,7 +470,9 @@ def block_sim_kernel(
         # All threads count active+jailed in their citizen chunk, reduce via shared memory
         if rev == 0:
             var s_reduce = stack_allocation[
-                BLOCK_SIZE, Scalar[DType.int32], address_space=AddressSpace.SHARED,
+                BLOCK_SIZE,
+                Scalar[DType.int32],
+                address_space=AddressSpace.SHARED,
             ]()
             var my_count: Int32 = 0
             var ri = tid
@@ -501,7 +539,11 @@ def block_sim_kernel(
             var trace_step = step + 1
             var tr_i = tid
             while tr_i < n_agents:
-                var tr_idx = sid * MAX_TRACE_STEPS * MAX_AGENTS + trace_step * MAX_AGENTS + tr_i
+                var tr_idx = (
+                    sid * MAX_TRACE_STEPS * MAX_AGENTS
+                    + trace_step * MAX_AGENTS
+                    + tr_i
+                )
                 trace_cond[tr_idx] = cond[off + tr_i]
                 trace_pos_x[tr_idx] = pos_x[off + tr_i]
                 trace_pos_y[tr_idx] = pos_y[off + tr_i]
@@ -538,6 +580,7 @@ def block_sim_kernel(
 # ============================================================
 # Host-side initialization and launch
 # ============================================================
+
 
 def main() raises:
     print("=== Cascade Block-per-Sim GPU Kernel ===")
@@ -620,23 +663,43 @@ def main() raises:
     var flat_param_size = total * 9
     var flat_metric_size = total * 6
 
-    var h_params = ctx.enqueue_create_host_buffer[DType.float32](flat_param_size)
+    var h_params = ctx.enqueue_create_host_buffer[DType.float32](
+        flat_param_size
+    )
     var h_cond = ctx.enqueue_create_host_buffer[DType.int32](flat_agent_size)
-    var h_next_cond = ctx.enqueue_create_host_buffer[DType.int32](flat_agent_size)
+    var h_next_cond = ctx.enqueue_create_host_buffer[DType.int32](
+        flat_agent_size
+    )
     var h_pos_x = ctx.enqueue_create_host_buffer[DType.int32](flat_agent_size)
     var h_pos_y = ctx.enqueue_create_host_buffer[DType.int32](flat_agent_size)
-    var h_is_citizen = ctx.enqueue_create_host_buffer[DType.int32](flat_agent_size)
-    var h_private_pref = ctx.enqueue_create_host_buffer[DType.float32](flat_agent_size)
+    var h_is_citizen = ctx.enqueue_create_host_buffer[DType.int32](
+        flat_agent_size
+    )
+    var h_private_pref = ctx.enqueue_create_host_buffer[DType.float32](
+        flat_agent_size
+    )
     var h_eps = ctx.enqueue_create_host_buffer[DType.float32](flat_agent_size)
-    var h_eps_prob = ctx.enqueue_create_host_buffer[DType.float32](flat_agent_size)
-    var h_oppose_th = ctx.enqueue_create_host_buffer[DType.float32](flat_agent_size)
-    var h_active_th = ctx.enqueue_create_host_buffer[DType.float32](flat_agent_size)
-    var h_jail_sent = ctx.enqueue_create_host_buffer[DType.int32](flat_agent_size)
-    var h_activation_val = ctx.enqueue_create_host_buffer[DType.float32](flat_agent_size)
+    var h_eps_prob = ctx.enqueue_create_host_buffer[DType.float32](
+        flat_agent_size
+    )
+    var h_oppose_th = ctx.enqueue_create_host_buffer[DType.float32](
+        flat_agent_size
+    )
+    var h_active_th = ctx.enqueue_create_host_buffer[DType.float32](
+        flat_agent_size
+    )
+    var h_jail_sent = ctx.enqueue_create_host_buffer[DType.int32](
+        flat_agent_size
+    )
+    var h_activation_val = ctx.enqueue_create_host_buffer[DType.float32](
+        flat_agent_size
+    )
     var h_rng = ctx.enqueue_create_host_buffer[DType.uint64](flat_agent_size)
     var h_num_citizens = ctx.enqueue_create_host_buffer[DType.int32](total)
     var h_num_agents = ctx.enqueue_create_host_buffer[DType.int32](total)
-    var h_metrics = ctx.enqueue_create_host_buffer[DType.int32](flat_metric_size)
+    var h_metrics = ctx.enqueue_create_host_buffer[DType.int32](
+        flat_metric_size
+    )
     ctx.synchronize()
 
     # Initialize (identical to cascade_gpu_batch.mojo)
@@ -648,8 +711,12 @@ def main() raises:
                 var model_eps = epsilons[ei]
                 var sec_dens = sec_densities[di]
 
-                var n_citizens = Int(round(Float64(GRID_SIZE) * Float64(citizen_density)))
-                var n_security = Int(round(Float64(GRID_SIZE) * Float64(sec_dens)))
+                var n_citizens = Int(
+                    round(Float64(GRID_SIZE) * Float64(citizen_density))
+                )
+                var n_security = Int(
+                    round(Float64(GRID_SIZE) * Float64(sec_dens))
+                )
                 var n_agents = n_citizens + n_security
 
                 var poff = sim_idx * 9
@@ -690,12 +757,16 @@ def main() raises:
                     h_next_cond[idx] = SUPPORT
 
                     # private_pref ~ gauss(pp_mean, 1.0)
-                    var pp_result = lcg_gauss_val(rng_state, pp_mean, Float32(1.0))
+                    var pp_result = lcg_gauss_val(
+                        rng_state, pp_mean, Float32(1.0)
+                    )
                     h_private_pref[idx] = pp_result[0]
                     rng_state = pp_result[1]
 
                     # epsilon ~ gauss(0, model_eps)
-                    var eps_result = lcg_gauss_val(rng_state, Float32(0.0), model_eps)
+                    var eps_result = lcg_gauss_val(
+                        rng_state, Float32(0.0), model_eps
+                    )
                     var e = eps_result[0]
                     rng_state = eps_result[1]
                     h_eps[idx] = e
@@ -746,18 +817,26 @@ def main() raises:
     var d_pos_x = ctx.enqueue_create_buffer[DType.int32](flat_agent_size)
     var d_pos_y = ctx.enqueue_create_buffer[DType.int32](flat_agent_size)
     var d_is_citizen = ctx.enqueue_create_buffer[DType.int32](flat_agent_size)
-    var d_private_pref = ctx.enqueue_create_buffer[DType.float32](flat_agent_size)
+    var d_private_pref = ctx.enqueue_create_buffer[DType.float32](
+        flat_agent_size
+    )
     var d_eps = ctx.enqueue_create_buffer[DType.float32](flat_agent_size)
     var d_eps_prob = ctx.enqueue_create_buffer[DType.float32](flat_agent_size)
     var d_oppose_th = ctx.enqueue_create_buffer[DType.float32](flat_agent_size)
     var d_active_th = ctx.enqueue_create_buffer[DType.float32](flat_agent_size)
     var d_jail_sent = ctx.enqueue_create_buffer[DType.int32](flat_agent_size)
-    var d_activation_val = ctx.enqueue_create_buffer[DType.float32](flat_agent_size)
+    var d_activation_val = ctx.enqueue_create_buffer[DType.float32](
+        flat_agent_size
+    )
     var d_rng = ctx.enqueue_create_buffer[DType.uint64](flat_agent_size)
     var d_num_citizens = ctx.enqueue_create_buffer[DType.int32](total)
     var d_num_agents = ctx.enqueue_create_buffer[DType.int32](total)
-    var d_grid_counts = ctx.enqueue_create_buffer[DType.int32](total * GRID_SIZE)
-    var d_grid_cells = ctx.enqueue_create_buffer[DType.int32](total * GRID_SIZE * MAX_PER_CELL)
+    var d_grid_counts = ctx.enqueue_create_buffer[DType.int32](
+        total * GRID_SIZE
+    )
+    var d_grid_cells = ctx.enqueue_create_buffer[DType.int32](
+        total * GRID_SIZE * MAX_PER_CELL
+    )
     var d_metrics = ctx.enqueue_create_buffer[DType.int32](flat_metric_size)
 
     # Copy host -> device
@@ -786,28 +865,51 @@ def main() raises:
 
     # Allocate step_metrics buffer for per-step data collection
     var flat_step_size = total * MAX_STEPS * N_STEP_FIELDS
-    var h_step_metrics = ctx.enqueue_create_host_buffer[DType.int32](flat_step_size)
+    var h_step_metrics = ctx.enqueue_create_host_buffer[DType.int32](
+        flat_step_size
+    )
     var d_step_metrics = ctx.enqueue_create_buffer[DType.int32](flat_step_size)
     var flat_trace_size = 1
     if trace_validation:
         flat_trace_size = total * MAX_TRACE_STEPS * MAX_AGENTS
-    var h_trace_cond = ctx.enqueue_create_host_buffer[DType.int32](flat_trace_size)
-    var h_trace_pos_x = ctx.enqueue_create_host_buffer[DType.int32](flat_trace_size)
-    var h_trace_pos_y = ctx.enqueue_create_host_buffer[DType.int32](flat_trace_size)
+    var h_trace_cond = ctx.enqueue_create_host_buffer[DType.int32](
+        flat_trace_size
+    )
+    var h_trace_pos_x = ctx.enqueue_create_host_buffer[DType.int32](
+        flat_trace_size
+    )
+    var h_trace_pos_y = ctx.enqueue_create_host_buffer[DType.int32](
+        flat_trace_size
+    )
     var d_trace_cond = ctx.enqueue_create_buffer[DType.int32](flat_trace_size)
     var d_trace_pos_x = ctx.enqueue_create_buffer[DType.int32](flat_trace_size)
     var d_trace_pos_y = ctx.enqueue_create_buffer[DType.int32](flat_trace_size)
     ctx.synchronize()
 
     ctx.enqueue_function[block_sim_kernel, block_sim_kernel](
-        d_params, d_cond, d_next_cond, d_pos_x, d_pos_y,
-        d_is_citizen, d_private_pref, d_eps, d_eps_prob,
-        d_oppose_th, d_active_th, d_jail_sent, d_activation_val,
-        d_rng, d_num_citizens, d_num_agents,
-        d_grid_counts, d_grid_cells,
+        d_params,
+        d_cond,
+        d_next_cond,
+        d_pos_x,
+        d_pos_y,
+        d_is_citizen,
+        d_private_pref,
+        d_eps,
+        d_eps_prob,
+        d_oppose_th,
+        d_active_th,
+        d_jail_sent,
+        d_activation_val,
+        d_rng,
+        d_num_citizens,
+        d_num_agents,
+        d_grid_counts,
+        d_grid_cells,
         d_metrics,
         d_step_metrics,
-        d_trace_cond, d_trace_pos_x, d_trace_pos_y,
+        d_trace_cond,
+        d_trace_pos_x,
+        d_trace_pos_y,
         total,
         Int32(1) if trace_validation else Int32(0),
         grid_dim=total,
@@ -833,19 +935,31 @@ def main() raises:
             for di in range(len(sec_densities)):
                 var moff = sim_idx * 6
                 print(
-                    "Sim", sim_idx,
-                    "seed=", seeds[si],
-                    "eps=", epsilons[ei],
-                    "sd=", sec_densities[di],
-                    "active=", h_metrics[moff + 0],
-                    "support=", h_metrics[moff + 1],
-                    "oppose=", h_metrics[moff + 2],
-                    "jail=", h_metrics[moff + 3],
-                    "rev=", Int32(h_metrics[moff + 4]) > 0,
+                    "Sim",
+                    sim_idx,
+                    "seed=",
+                    seeds[si],
+                    "eps=",
+                    epsilons[ei],
+                    "sd=",
+                    sec_densities[di],
+                    "active=",
+                    h_metrics[moff + 0],
+                    "support=",
+                    h_metrics[moff + 1],
+                    "oppose=",
+                    h_metrics[moff + 2],
+                    "jail=",
+                    h_metrics[moff + 3],
+                    "rev=",
+                    Int32(h_metrics[moff + 4]) > 0,
                 )
                 # Verify: last step of step_metrics should match final metrics
                 var last_step = num_steps - 1
-                var sm_off = sim_idx * MAX_STEPS * N_STEP_FIELDS + last_step * N_STEP_FIELDS
+                var sm_off = (
+                    sim_idx * MAX_STEPS * N_STEP_FIELDS
+                    + last_step * N_STEP_FIELDS
+                )
                 var sm_active = Int32(h_step_metrics[sm_off + 0])
                 var sm_support = Int32(h_step_metrics[sm_off + 1])
                 var sm_oppose = Int32(h_step_metrics[sm_off + 2])
@@ -854,10 +968,26 @@ def main() raises:
                 var final_support = Int32(h_metrics[moff + 1])
                 var final_oppose = Int32(h_metrics[moff + 2])
                 var final_jail = Int32(h_metrics[moff + 3])
-                if sm_active != final_active or sm_support != final_support or sm_oppose != final_oppose or sm_jail != final_jail:
-                    print("  ** STEP METRICS MISMATCH at sim", sim_idx,
-                          "step_metrics=", sm_active, sm_support, sm_oppose, sm_jail,
-                          "final=", final_active, final_support, final_oppose, final_jail)
+                if (
+                    sm_active != final_active
+                    or sm_support != final_support
+                    or sm_oppose != final_oppose
+                    or sm_jail != final_jail
+                ):
+                    print(
+                        "  ** STEP METRICS MISMATCH at sim",
+                        sim_idx,
+                        "step_metrics=",
+                        sm_active,
+                        sm_support,
+                        sm_oppose,
+                        sm_jail,
+                        "final=",
+                        final_active,
+                        final_support,
+                        final_oppose,
+                        final_jail,
+                    )
                 sim_idx += 1
 
     if trace_validation:
@@ -869,13 +999,28 @@ def main() raises:
             var sd_val = sec_densities[0]
             var n_citizens = Int(h_num_citizens[sim])
             for step in range(num_steps + 1):
-                var tr_base = sim * MAX_TRACE_STEPS * MAX_AGENTS + step * MAX_AGENTS
+                var tr_base = (
+                    sim * MAX_TRACE_STEPS * MAX_AGENTS + step * MAX_AGENTS
+                )
                 for agent_id in range(n_citizens):
                     print(
-                        "TRACE,", sim, ",", seed_val, ",", eps_val, ",", sd_val, ",",
-                        step, ",", agent_id, ",",
-                        h_trace_pos_x[tr_base + agent_id], ",",
-                        h_trace_pos_y[tr_base + agent_id], ",",
+                        "TRACE,",
+                        sim,
+                        ",",
+                        seed_val,
+                        ",",
+                        eps_val,
+                        ",",
+                        sd_val,
+                        ",",
+                        step,
+                        ",",
+                        agent_id,
+                        ",",
+                        h_trace_pos_x[tr_base + agent_id],
+                        ",",
+                        h_trace_pos_y[tr_base + agent_id],
+                        ",",
                         cond_name(h_trace_cond[tr_base + agent_id]),
                         sep="",
                     )
@@ -883,19 +1028,38 @@ def main() raises:
     if seed_search:
         print()
         print("=== SEED SEARCH STEP CSV ===")
-        print("STEP,sim,seed,epsilon,security_density,step,active,support,oppose,jail,revolution")
+        print(
+            "STEP,sim,seed,epsilon,security_density,step,active,support,oppose,jail,revolution"
+        )
         var search_sim = 0
         for si in range(len(seeds)):
             for ei in range(len(epsilons)):
                 for di in range(len(sec_densities)):
                     for s in range(num_steps):
-                        var sm_off = search_sim * MAX_STEPS * N_STEP_FIELDS + s * N_STEP_FIELDS
+                        var sm_off = (
+                            search_sim * MAX_STEPS * N_STEP_FIELDS
+                            + s * N_STEP_FIELDS
+                        )
                         print(
-                            "STEP,", search_sim, ",", seeds[si], ",", epsilons[ei], ",", sec_densities[di], ",", s, ",",
-                            h_step_metrics[sm_off + 0], ",",
-                            h_step_metrics[sm_off + 1], ",",
-                            h_step_metrics[sm_off + 2], ",",
-                            h_step_metrics[sm_off + 3], ",",
+                            "STEP,",
+                            search_sim,
+                            ",",
+                            seeds[si],
+                            ",",
+                            epsilons[ei],
+                            ",",
+                            sec_densities[di],
+                            ",",
+                            s,
+                            ",",
+                            h_step_metrics[sm_off + 0],
+                            ",",
+                            h_step_metrics[sm_off + 1],
+                            ",",
+                            h_step_metrics[sm_off + 2],
+                            ",",
+                            h_step_metrics[sm_off + 3],
+                            ",",
                             h_step_metrics[sm_off + 4],
                             sep="",
                         )
@@ -907,15 +1071,28 @@ def main() raises:
     print("step\tactive\tsupport\toppose\tjail\trev")
     for s in range(num_steps):
         var sm_off = 0 * MAX_STEPS * N_STEP_FIELDS + s * N_STEP_FIELDS
-        print(s, "\t",
-              h_step_metrics[sm_off + 0], "\t",
-              h_step_metrics[sm_off + 1], "\t",
-              h_step_metrics[sm_off + 2], "\t",
-              h_step_metrics[sm_off + 3], "\t",
-              h_step_metrics[sm_off + 4])
+        print(
+            s,
+            "\t",
+            h_step_metrics[sm_off + 0],
+            "\t",
+            h_step_metrics[sm_off + 1],
+            "\t",
+            h_step_metrics[sm_off + 2],
+            "\t",
+            h_step_metrics[sm_off + 3],
+            "\t",
+            h_step_metrics[sm_off + 4],
+        )
 
     print()
-    print("Done:", sim_idx, "simulations in", elapsed_s, "seconds (GPU kernel time)")
+    print(
+        "Done:",
+        sim_idx,
+        "simulations in",
+        elapsed_s,
+        "seconds (GPU kernel time)",
+    )
     print("Throughput:", Float64(sim_idx) / elapsed_s, "sims/sec")
     print("Per-sim:", elapsed_s / Float64(sim_idx), "s")
     print("Architecture: block-per-sim, BLOCK_SIZE =", BLOCK_SIZE)

@@ -6,7 +6,7 @@ exactly, both Random instances consume values in the same order and produce
 identical state at every step. Any mismatch proves a logic difference.
 
 Usage:
-    cd /home/joehe/git/cascade && uv run mojo_cascade/cross_validate_full.py
+    cd /home/joehe/git/cascade && pixi run python mojo_cascade/cross_validate_full.py
 """
 import sys
 import math

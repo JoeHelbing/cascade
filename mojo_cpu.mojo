@@ -98,6 +98,7 @@ def _cond_name(c: Int) -> String:
 # Gaussian routine as `mojo_gpu.mojo`, giving the CPU bridge a GPU-compatible
 # randomness mode while still exercising the exact same CPU simulation code.
 
+
 @always_inline
 def lcg_next(state: UInt64) -> UInt64:
     return state * 6364136223846793005 + 1442695040888963407
@@ -156,7 +157,9 @@ struct RngProvider:
             return Float64(py=self.py_rng.random())
         return lcg_float(self._next_for(agent_id))
 
-    def gauss(mut self, agent_id: Int, mean: Float64, std: Float64) raises -> Float64:
+    def gauss(
+        mut self, agent_id: Int, mean: Float64, std: Float64
+    ) raises -> Float64:
         if self.mode == RNG_PYTHON:
             return Float64(py=self.py_rng.gauss(mean, std))
 
@@ -181,6 +184,7 @@ struct RngProvider:
 # ============================================================
 # Simulation state (one SimState = one ResistanceCascade run)
 # ============================================================
+
 
 struct SimState:
     var num_citizens: Int
@@ -262,7 +266,9 @@ struct SimState:
         self.citizen_vision = citizen_vision
         self.security_vision = security_vision
         self.threshold = threshold
-        self.threshold_sig = py_sigmoid(self.py_math, self.py_builtins, threshold)
+        self.threshold_sig = py_sigmoid(
+            self.py_math, self.py_builtins, threshold
+        )
         self.max_jail = max_jail_term
         self.movement = movement
         self.multiple_agents_per_cell = multiple_agents_per_cell
@@ -309,7 +315,9 @@ struct SimState:
             self.pos_x[i] = self.rng.randrange(i, self.width)
             self.pos_y[i] = self.rng.randrange(i, self.height)
             self.is_citizen[i] = True
-            self.private_pref[i] = self.rng.gauss(i, pp_mean, standard_deviation)
+            self.private_pref[i] = self.rng.gauss(
+                i, pp_mean, standard_deviation
+            )
             var e = self.rng.gauss(i, 0.0, model_eps)
             self.eps[i] = e
             self.eps_prob[i] = py_sigmoid(self.py_math, self.py_builtins, e)
@@ -330,7 +338,9 @@ struct SimState:
             self.pos_y[i] = self.rng.randrange(i, self.height)
             self.is_citizen[i] = False
             self.cond[i] = SECURITY_COND
-            self.private_pref[i] = self.rng.gauss(i, pp_mean, standard_deviation)
+            self.private_pref[i] = self.rng.gauss(
+                i, pp_mean, standard_deviation
+            )
 
         # ----- Step-0 determine_condition (model.py:236-238) -----
         # Mesa runs determine_condition for every citizen in insertion order
@@ -340,7 +350,6 @@ struct SimState:
         for i in range(self.num_citizens):
             self.did_flip[i] = False
             self._determine_condition(i)
-
 
     # Is (bx, by) within Chebyshev `radius` of (ax, ay) on a 40x40 torus?
     @always_inline
@@ -354,7 +363,6 @@ struct SimState:
         if dy > self.height // 2:
             dy = self.height - dy
         return dx <= radius and dy <= radius
-
 
     # Mesa agent.py:63-76 step() + 119-181 determine_condition().
     def _determine_condition(mut self, i: Int) raises:
@@ -377,7 +385,9 @@ struct SimState:
             # identical to Mesa's count_neigbhors loop.
             if bx == ax and by == ay:
                 continue
-            var vision = self.citizen_vision if self.is_citizen[i] else self.security_vision
+            var vision = self.citizen_vision if self.is_citizen[
+                i
+            ] else self.security_vision
             if not self._in_vision(ax, ay, bx, by, vision):
                 continue
             if self.is_citizen[j]:
@@ -396,13 +406,29 @@ struct SimState:
             var ep32 = Float32(self.eps[i])
             var ep_prob32 = Float32(self.eps_prob[i])
             var active_ratio32 = Float32(actives + opposed) / Float32(support)
-            var perception32 = (Float32(actives) + Float32(opposed) * ep_prob32) ** (1.0 / (ep32 * ep32 + 1.0))
-            var arrest_prob32 = 1.0 - exp(Float32(-2.3) * Float32(security) / Float32(actives) * 2.0 * ep_prob32)
-            var opinion32 = -Float32(self.private_pref[i]) + perception32 * active_ratio32
+            var perception32 = (
+                Float32(actives) + Float32(opposed) * ep_prob32
+            ) ** (1.0 / (ep32 * ep32 + 1.0))
+            var arrest_prob32 = 1.0 - exp(
+                Float32(-2.3)
+                * Float32(security)
+                / Float32(actives)
+                * 2.0
+                * ep_prob32
+            )
+            var opinion32 = (
+                -Float32(self.private_pref[i]) + perception32 * active_ratio32
+            )
             var rand_act32 = Float32(self.rng.random(i))
             var activation32 = 1.0 / (1.0 + exp(-opinion32))
-            var active_level32 = 1.0 / (1.0 + exp(-(opinion32 - Float32(self.active_th[i])))) - arrest_prob32
-            var oppose_level32 = 1.0 / (1.0 + exp(-(opinion32 - Float32(self.oppose_th[i])))) - arrest_prob32
+            var active_level32 = (
+                1.0 / (1.0 + exp(-(opinion32 - Float32(self.active_th[i]))))
+                - arrest_prob32
+            )
+            var oppose_level32 = (
+                1.0 / (1.0 + exp(-(opinion32 - Float32(self.oppose_th[i]))))
+                - arrest_prob32
+            )
             self.perception[i] = Float64(perception32)
             self.arrest_prob[i] = Float64(arrest_prob32)
             self.opinion_val[i] = Float64(opinion32)
@@ -423,7 +449,11 @@ struct SimState:
         # Route via Python builtins.float ops: Mojo's compiler sometimes
         # fuses/reorders these when they appear in hot loops, diverging from
         # CPython by 1-5 ULP. Debug: this is a temporary workaround.
-        var active_ratio = Float64(py=self.py_builtins.float(actives + opposed).__truediv__(self.py_builtins.float(support)))
+        var active_ratio = Float64(
+            py=self.py_builtins.float(actives + opposed).__truediv__(
+                self.py_builtins.float(support)
+            )
+        )
         var ep = self.eps[i]
         var eps_p = self.eps_prob[i]
         # perception = (actives + opposed * eps_p) ** (1 / (eps**2 + 1)).
@@ -458,7 +488,12 @@ struct SimState:
         var act_py = self.py_builtins.float(actives)
         var two_py = self.py_builtins.float(2.0)
         var eps_p_py2 = self.py_builtins.float(eps_p)
-        var ap_arg = neg23.__mul__(sec_py).__truediv__(act_py).__mul__(two_py).__mul__(eps_p_py2)
+        var ap_arg = (
+            neg23.__mul__(sec_py)
+            .__truediv__(act_py)
+            .__mul__(two_py)
+            .__mul__(eps_p_py2)
+        )
         var one_py = self.py_builtins.float(1.0)
         var arrest_prob = Float64(py=one_py.__sub__(self.py_math.exp(ap_arg)))
         self.arrest_prob[i] = arrest_prob
@@ -474,7 +509,9 @@ struct SimState:
         # uniform(0, 1) == 0 + (1 - 0) * self.random() == self.random(). We
         # call random() directly -- same bits as Mesa's uniform call.
         var rand_act = self.rng.random(i)
-        self.activation_val[i] = py_sigmoid(self.py_math, self.py_builtins, opinion)
+        self.activation_val[i] = py_sigmoid(
+            self.py_math, self.py_builtins, opinion
+        )
         # opinion - threshold and sigmoid(...) - arrest_prob all routed through
         # Python ops to stay bit-identical with Mesa.
         var opinion_py = self.py_builtins.float(opinion)
@@ -483,8 +520,12 @@ struct SimState:
         var opp_th_py = self.py_builtins.float(self.oppose_th[i])
         var al_arg = Float64(py=opinion_py.__sub__(act_th_py))
         var ol_arg = Float64(py=opinion_py.__sub__(opp_th_py))
-        var al_sig = self.py_builtins.float(py_sigmoid(self.py_math, self.py_builtins, al_arg))
-        var ol_sig = self.py_builtins.float(py_sigmoid(self.py_math, self.py_builtins, ol_arg))
+        var al_sig = self.py_builtins.float(
+            py_sigmoid(self.py_math, self.py_builtins, al_arg)
+        )
+        var ol_sig = self.py_builtins.float(
+            py_sigmoid(self.py_math, self.py_builtins, ol_arg)
+        )
         var al = Float64(py=al_sig.__sub__(ap_py))
         var ol = Float64(py=ol_sig.__sub__(ap_py))
         self.active_level[i] = al
@@ -500,7 +541,6 @@ struct SimState:
         else:
             self.next_cond[i] = SUPPORT
 
-
     # Mesa random_walker.py:40-61 random_move().
     # iter_neighborhood(moore=True, include_center=True, radius=1) on a 40x40
     # torus yields 9 cells in dx-OUTER, dy-INNER order:
@@ -514,7 +554,6 @@ struct SimState:
         var dy = idx % 3 - 1
         self.pos_x[i] = (self.pos_x[i] + dx + self.width) % self.width
         self.pos_y[i] = (self.pos_y[i] + dy + self.height) % self.height
-
 
     def _recount(mut self):
         self.active_count = 0
@@ -531,7 +570,6 @@ struct SimState:
                 self.oppose_count += 1
             elif c == JAILED:
                 self.jail_count += 1
-
 
     def step(mut self) raises:
         # Phase 1: citizen.step() in unique_id order.
@@ -573,6 +611,7 @@ struct SimState:
 # Main -- run 12 picked seeds, emit per-agent CSV
 # ============================================================
 
+
 def _emit_agents(sim: SimState, seed: Int, step: Int):
     """One row per agent using python-core-simulation TraceRow field names."""
     for i in range(sim.num_agents):
@@ -580,30 +619,56 @@ def _emit_agents(sim: SimState, seed: Int, step: Int):
         var cond_s = _cond_name(sim.cond[i])
         if sim.is_citizen[i]:
             print(
-                String(step), ",", String(aid), ",Citizen,",
-                String(sim.pos_x[i]), ",", String(sim.pos_y[i]), ",",
-                cond_s, ",",
-                String(sim.opinion_val[i]), ",",
-                String(sim.activation_val[i]), ",",
-                String(sim.private_pref[i]), ",",
-                String(sim.eps[i]), ",",
-                String(sim.oppose_th[i]), ",",
-                String(sim.active_th[i]), ",",
-                String(sim.jail_sent[i]), ",",
+                String(step),
+                ",",
+                String(aid),
+                ",Citizen,",
+                String(sim.pos_x[i]),
+                ",",
+                String(sim.pos_y[i]),
+                ",",
+                cond_s,
+                ",",
+                String(sim.opinion_val[i]),
+                ",",
+                String(sim.activation_val[i]),
+                ",",
+                String(sim.private_pref[i]),
+                ",",
+                String(sim.eps[i]),
+                ",",
+                String(sim.oppose_th[i]),
+                ",",
+                String(sim.active_th[i]),
+                ",",
+                String(sim.jail_sent[i]),
+                ",",
                 ",,,,",
-                String(sim.perception[i]), ",",
-                String(sim.arrest_prob[i]), ",",
-                String(sim.active_level[i]), ",",
-                String(sim.oppose_level[i]), ",",
-                String("True") if sim.did_flip[i] else String("False"), ",",
+                String(sim.perception[i]),
+                ",",
+                String(sim.arrest_prob[i]),
+                ",",
+                String(sim.active_level[i]),
+                ",",
+                String(sim.oppose_level[i]),
+                ",",
+                String("True") if sim.did_flip[i] else String("False"),
+                ",",
                 String("True") if sim.ever_flip[i] else String("False"),
                 sep="",
             )
         else:
             print(
-                String(step), ",", String(aid), ",Security,",
-                String(sim.pos_x[i]), ",", String(sim.pos_y[i]), ",Security,,,",
-                String(sim.private_pref[i]), ",,,,,,,,,,,,,",
+                String(step),
+                ",",
+                String(aid),
+                ",Security,",
+                String(sim.pos_x[i]),
+                ",",
+                String(sim.pos_y[i]),
+                ",Security,,,",
+                String(sim.private_pref[i]),
+                ",,,,,,,,,,,,,",
                 sep="",
             )
 
@@ -629,9 +694,18 @@ struct CpuConfig:
 
     def __init__(out self):
         self.seeds = List[Int]()
-        self.seeds.append(2); self.seeds.append(3); self.seeds.append(7); self.seeds.append(8)
-        self.seeds.append(12); self.seeds.append(13); self.seeds.append(19); self.seeds.append(21)
-        self.seeds.append(24); self.seeds.append(25); self.seeds.append(26); self.seeds.append(28)
+        self.seeds.append(2)
+        self.seeds.append(3)
+        self.seeds.append(7)
+        self.seeds.append(8)
+        self.seeds.append(12)
+        self.seeds.append(13)
+        self.seeds.append(19)
+        self.seeds.append(21)
+        self.seeds.append(24)
+        self.seeds.append(25)
+        self.seeds.append(26)
+        self.seeds.append(28)
         self.width = DEFAULT_WIDTH
         self.height = DEFAULT_HEIGHT
         self.citizen_vision = DEFAULT_VISION
@@ -651,7 +725,13 @@ struct CpuConfig:
 
 
 def _parse_bool(value: String) -> Bool:
-    if value == String("true") or value == String("True") or value == String("1") or value == String("yes") or value == String("on"):
+    if (
+        value == String("true")
+        or value == String("True")
+        or value == String("1")
+        or value == String("yes")
+        or value == String("on")
+    ):
         return True
     return False
 
@@ -661,7 +741,11 @@ def _parse_rng_mode(value: String) raises -> Int:
         return RNG_PYTHON
     if value == String("gpu") or value == String("mojo"):
         return RNG_GPU
-    raise Error(String("unknown --rng mode: ") + value + String(" (expected python or gpu)"))
+    raise Error(
+        String("unknown --rng mode: ")
+        + value
+        + String(" (expected python or gpu)")
+    )
 
 
 def _set_seeds(mut config: CpuConfig, value: String) raises:
@@ -677,10 +761,22 @@ def _parse_config(mut config: CpuConfig) raises:
     while i < len(args):
         var key = args[i]
         if key == String("--help") or key == String("-h"):
-            print("Usage: mojo_cpu [--seed N|--seeds A,B] [ResistanceCascade parameters]")
-            print("Parameters: --width --height --citizen-vision --citizen-density --security-density")
-            print("  --security-vision --max-jail-term --movement --multiple-agents-per-cell")
-            print("  --private-preference-distribution-mean --standard-deviation --epsilon")
+            print(
+                "Usage: mojo_cpu [--seed N|--seeds A,B] [ResistanceCascade"
+                " parameters]"
+            )
+            print(
+                "Parameters: --width --height --citizen-vision"
+                " --citizen-density --security-density"
+            )
+            print(
+                "  --security-vision --max-jail-term --movement"
+                " --multiple-agents-per-cell"
+            )
+            print(
+                "  --private-preference-distribution-mean --standard-deviation"
+                " --epsilon"
+            )
             print("  --max-iters --threshold --random-seed --rng python|gpu")
             return
         if i + 1 >= len(args):
@@ -688,34 +784,75 @@ def _parse_config(mut config: CpuConfig) raises:
         var value = args[i + 1]
         if key == String("--seed") or key == String("--seeds"):
             _set_seeds(config, value)
-        elif key == String("--rng") or key == String("--rng-mode") or key == String("--rng_mode"):
+        elif (
+            key == String("--rng")
+            or key == String("--rng-mode")
+            or key == String("--rng_mode")
+        ):
             config.rng_mode = _parse_rng_mode(value)
         elif key == String("--width"):
             config.width = Int(value)
         elif key == String("--height"):
             config.height = Int(value)
-        elif key == String("--citizen-vision") or key == String("--citizen_vision") or key == String("--vision"):
+        elif (
+            key == String("--citizen-vision")
+            or key == String("--citizen_vision")
+            or key == String("--vision")
+        ):
             config.citizen_vision = Int(value)
             config.security_vision = Int(value)
-        elif key == String("--citizen-density") or key == String("--citizen_density"):
+        elif key == String("--citizen-density") or key == String(
+            "--citizen_density"
+        ):
             config.citizen_density = Float64(value)
-        elif key == String("--security-density") or key == String("--security_density") or key == String("--sec-density") or key == String("--sec_density"):
+        elif (
+            key == String("--security-density")
+            or key == String("--security_density")
+            or key == String("--sec-density")
+            or key == String("--sec_density")
+        ):
             config.security_density = Float64(value)
-        elif key == String("--security-vision") or key == String("--security_vision"):
+        elif key == String("--security-vision") or key == String(
+            "--security_vision"
+        ):
             config.security_vision = Int(value)
-        elif key == String("--max-jail-term") or key == String("--max_jail_term") or key == String("--max-jail") or key == String("--max_jail"):
+        elif (
+            key == String("--max-jail-term")
+            or key == String("--max_jail_term")
+            or key == String("--max-jail")
+            or key == String("--max_jail")
+        ):
             config.max_jail_term = Int(value)
         elif key == String("--movement"):
             config.movement = _parse_bool(value)
-        elif key == String("--multiple-agents-per-cell") or key == String("--multiple_agents_per_cell"):
+        elif key == String("--multiple-agents-per-cell") or key == String(
+            "--multiple_agents_per_cell"
+        ):
             config.multiple_agents_per_cell = _parse_bool(value)
-        elif key == String("--private-preference-distribution-mean") or key == String("--private_preference_distribution_mean") or key == String("--pp-mean") or key == String("--pp_mean"):
+        elif (
+            key == String("--private-preference-distribution-mean")
+            or key == String("--private_preference_distribution_mean")
+            or key == String("--pp-mean")
+            or key == String("--pp_mean")
+        ):
             config.pp_mean = Float64(value)
-        elif key == String("--standard-deviation") or key == String("--standard_deviation"):
+        elif key == String("--standard-deviation") or key == String(
+            "--standard_deviation"
+        ):
             config.standard_deviation = Float64(value)
-        elif key == String("--epsilon") or key == String("--epsilon-val") or key == String("--epsilon_val"):
+        elif (
+            key == String("--epsilon")
+            or key == String("--epsilon-val")
+            or key == String("--epsilon_val")
+        ):
             config.model_eps = Float64(value)
-        elif key == String("--max-iters") or key == String("--max_iters") or key == String("--n-steps") or key == String("--n_steps") or key == String("--steps"):
+        elif (
+            key == String("--max-iters")
+            or key == String("--max_iters")
+            or key == String("--n-steps")
+            or key == String("--n_steps")
+            or key == String("--steps")
+        ):
             config.max_iters = Int(value)
         elif key == String("--threshold"):
             config.threshold = Float64(value)
@@ -755,15 +892,13 @@ def _run_python_core(config: CpuConfig) raises:
             collect_trace=True,
         )
         sim.run(steps=config.max_iters)
-        if si == 0:
-            sim.write_trace(sys_mod.stdout)
-        else:
-            var out = io_mod.StringIO()
-            sim.write_trace(out)
-            var lines = String(py=out.getvalue()).split("\n")
-            for li in range(1, len(lines)):
-                if lines[li] != String(""):
-                    print(lines[li])
+        var out = io_mod.StringIO()
+        sim.write_trace(out)
+        var lines = String(py=out.getvalue()).split("\n")
+        var start = 0 if si == 0 else 1
+        for li in range(start, len(lines)):
+            if lines[li] != String(""):
+                print(lines[li])
 
 
 def main() raises:
@@ -818,7 +953,11 @@ def main() raises:
     var elapsed_s = Float64(perf_counter_ns() - t_start) / 1_000_000_000.0
     var accel = String("yes") if has_accelerator() else String("no")
     print(
-        "# done,", String(len(config.seeds)), " sims, ", String(elapsed_s),
-        " s, accel=", accel,
+        "# done,",
+        String(len(config.seeds)),
+        " sims, ",
+        String(elapsed_s),
+        " s, accel=",
+        accel,
         sep="",
     )

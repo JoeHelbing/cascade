@@ -3,8 +3,8 @@ Benchmark harness for block_per_sim GPU kernel.
 Compares correctness (SHA-256 fingerprint) and throughput against baseline.
 
 Usage:
-    uv run autoresearch/benchmarks/gpu_kernel_benchmark.py --baseline
-    uv run autoresearch/benchmarks/gpu_kernel_benchmark.py --compare
+    pixi run python autoresearch/benchmarks/gpu_kernel_benchmark.py --baseline
+    pixi run python autoresearch/benchmarks/gpu_kernel_benchmark.py --compare
 """
 import hashlib
 import json
@@ -135,5 +135,5 @@ if __name__ == "__main__":
     elif "--compare" in sys.argv:
         compare()
     else:
-        print("Usage: uv run benchmark_block_per_sim.py [--baseline|--compare]")
+        print("Usage: pixi run python benchmark_block_per_sim.py [--baseline|--compare]")
         sys.exit(1)

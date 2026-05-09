@@ -32,9 +32,9 @@ pixi run validate       # run both boundaries in order
 Direct form:
 
 ```bash
-uv run autoresearch/validation/run_pipeline.py --stage cpu
-uv run autoresearch/validation/run_pipeline.py --stage gpu
-uv run autoresearch/validation/run_pipeline.py --stage all
+pixi run python autoresearch/validation/run_pipeline.py --stage cpu
+pixi run python autoresearch/validation/run_pipeline.py --stage gpu
+pixi run python autoresearch/validation/run_pipeline.py --stage all
 ```
 
 ## Live files

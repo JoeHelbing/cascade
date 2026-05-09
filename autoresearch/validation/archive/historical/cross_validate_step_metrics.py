@@ -9,7 +9,7 @@ This validates that the per-step counting logic used in the GPU kernel
 (manifold_search_gpu.mojo) correctly captures simulation dynamics.
 
 Usage:
-    cd /home/joehe/git/cascade && uv run mojo_cascade/cross_validate_step_metrics.py
+    cd /home/joehe/git/cascade && pixi run python mojo_cascade/cross_validate_step_metrics.py
 """
 import sys
 import math
