@@ -16,12 +16,15 @@ class CoreCpuMojoTests(unittest.TestCase):
         self.assertNotIn("std.python", source)
         self.assertNotIn("Python.import_module", source)
 
-    def test_core_cpu_mojo_builds_and_emits_trace_schema(self):
+    @classmethod
+    def setUpClass(cls):
         subprocess.run(
             ["pixi", "run", "mojo", "build", "core_cpu_mojo.mojo", "-o", str(CORE_BINARY)],
             cwd=REPO_ROOT,
             check=True,
         )
+
+    def test_core_cpu_mojo_builds_and_emits_trace_schema(self):
         result = subprocess.run(
             [
                 str(CORE_BINARY),
@@ -58,6 +61,33 @@ class CoreCpuMojoTests(unittest.TestCase):
         self.assertEqual({row["step"] for row in rows}, {"0", "1", "2"})
         self.assertEqual(len(rows), 27)  # 6 citizens + 3 security across 3 trace snapshots
         self.assertEqual(sum(1 for row in rows if row["agent_type"] == "Security"), 9)
+
+    def test_initial_agent_placement_is_unique_and_spread_across_grid(self):
+        # Arrange / Act
+        result = subprocess.run(
+            [
+                str(CORE_BINARY),
+                "--width", "8",
+                "--height", "8",
+                "--citizen-density", "0.5",
+                "--security-density", "0.0",
+                "--max-iters", "0",
+                "--seed", "1",
+                "--movement", "false",
+            ],
+            cwd=REPO_ROOT,
+            check=True,
+            text=True,
+            capture_output=True,
+        )
+        rows = list(csv.DictReader(line for line in result.stdout.splitlines() if not line.startswith("#")))
+        positions = [(int(row["x"]), int(row["y"])) for row in rows if row["step"] == "0"]
+
+        # Assert
+        self.assertEqual(len(positions), 32)
+        self.assertEqual(len(set(positions)), len(positions))
+        self.assertGreater(len({x for x, _ in positions}), 4)
+        self.assertGreater(len({y for _, y in positions}), 4)
 
 
 if __name__ == "__main__":

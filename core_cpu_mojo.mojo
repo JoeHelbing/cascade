@@ -51,7 +51,10 @@ struct NativeRng:
         return Float64(self.next_u64() >> 11) * (1.0 / 9007199254740992.0)
 
     def randrange(mut self, max_val: Int) -> Int:
-        return Int(self.next_u64() % UInt64(max_val))
+        # Use high bits for bounded integer draws. The low bits of an LCG are
+        # highly patterned; modulo on those bits made initial positions fall on
+        # a small diagonal cycle for power-of-two grid sizes.
+        return Int((self.next_u64() >> 32) % UInt64(max_val))
 
     def randint(mut self, min_val: Int, max_val: Int) -> Int:
         return min_val + self.randrange(max_val - min_val + 1)
@@ -161,7 +164,11 @@ struct CoreSim:
 
         var cells = width * height
         self.num_citizens = Int(Float64(cells) * citizen_density + 0.5)
+        if self.num_citizens > cells:
+            self.num_citizens = cells
         self.num_security = Int(Float64(cells) * security_density + 0.5)
+        if self.num_security > cells - self.num_citizens:
+            self.num_security = cells - self.num_citizens
         self.num_agents = self.num_citizens + self.num_security
         var n = self.num_agents
 
@@ -190,9 +197,10 @@ struct CoreSim:
         self.did_flip = List[Bool](length=n, fill=False)
         self.ever_flip = List[Bool](length=n, fill=False)
 
+        var occupied = List[Bool](length=cells, fill=False)
+
         for i in range(self.num_citizens):
-            self.pos_x[i] = self.rng.randrange(self.width)
-            self.pos_y[i] = self.rng.randrange(self.height)
+            self._place_random_empty(i, occupied)
             self.private_pref[i] = self.rng.gauss(pp_mean, standard_deviation)
             var e = self.rng.gauss(0.0, model_eps)
             self.eps[i] = e
@@ -207,8 +215,7 @@ struct CoreSim:
                 self.active_th[i] = t1
 
         for i in range(self.num_citizens, self.num_agents):
-            self.pos_x[i] = self.rng.randrange(self.width)
-            self.pos_y[i] = self.rng.randrange(self.height)
+            self._place_random_empty(i, occupied)
             self.is_citizen[i] = False
             self.cond[i] = SECURITY_COND
             self.next_cond[i] = SECURITY_COND
@@ -217,6 +224,17 @@ struct CoreSim:
         for i in range(self.num_citizens):
             self.did_flip[i] = False
             self._determine_condition(i)
+
+    def _place_random_empty(mut self, i: Int, mut occupied: List[Bool]):
+        var start = self.rng.randrange(self.width * self.height)
+        for offset in range(self.width * self.height):
+            var cell = (start + offset) % (self.width * self.height)
+            if not occupied[cell]:
+                occupied[cell] = True
+                self.pos_x[i] = cell % self.width
+                self.pos_y[i] = cell // self.width
+                self.has_position[i] = True
+                return
 
     @always_inline
     def _in_vision(
