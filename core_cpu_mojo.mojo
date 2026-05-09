@@ -200,6 +200,26 @@ struct CoreSim:
                 self.has_position[i] = True
                 return
 
+    def _cell_is_occupied(self, cell: Int, self_id: Int) -> Bool:
+        var x = cell % self.width
+        var y = cell // self.width
+        for j in range(self.num_agents):
+            if j == self_id or not self.has_position[j]:
+                continue
+            if self.pos_x[j] == x and self.pos_y[j] == y:
+                return True
+        return False
+
+    def _place_random_empty_cell(mut self, i: Int):
+        var start = _randrange(self.width * self.height)
+        for offset in range(self.width * self.height):
+            var cell = (start + offset) % (self.width * self.height)
+            if not self._cell_is_occupied(cell, i):
+                self.pos_x[i] = cell % self.width
+                self.pos_y[i] = cell // self.width
+                self.has_position[i] = True
+                return
+
     @always_inline
     def _in_vision(
         self, ax: Int, ay: Int, bx: Int, by: Int, radius: Int
@@ -284,15 +304,22 @@ struct CoreSim:
             self.next_cond[i] = SUPPORT
 
     def _random_position(mut self, i: Int):
-        self.pos_x[i] = _randrange(self.width)
-        self.pos_y[i] = _randrange(self.height)
-        self.has_position[i] = True
+        self._place_random_empty_cell(i)
 
     def _random_move(mut self, i: Int):
-        var dx = _randrange(3) - 1
-        var dy = _randrange(3) - 1
-        self.pos_x[i] = (self.pos_x[i] + dx + self.width) % self.width
-        self.pos_y[i] = (self.pos_y[i] + dy + self.height) % self.height
+        var candidates = List[Int]()
+        for dx in range(-1, 2):
+            for dy in range(-1, 2):
+                var x = (self.pos_x[i] + dx + self.width) % self.width
+                var y = (self.pos_y[i] + dy + self.height) % self.height
+                var cell = y * self.width + x
+                if not self._cell_is_occupied(cell, i):
+                    candidates.append(cell)
+        if len(candidates) == 0:
+            return
+        var chosen = candidates[_randrange(len(candidates))]
+        self.pos_x[i] = chosen % self.width
+        self.pos_y[i] = chosen // self.width
 
     def _advance_citizen(mut self, i: Int):
         if self.jail_sent[i] > 0:
@@ -492,7 +519,7 @@ def _parse_config(mut config: CoreConfig) raises:
         elif key == String("--multiple-agents-per-cell") or key == String(
             "--multiple_agents_per_cell"
         ):
-            # Kept for CLI compatibility. The pure core allows multiple agents per cell.
+            # Kept for CLI compatibility. The pure core enforces one agent per tile.
             pass
         elif (
             key == String("--private-preference-distribution-mean")

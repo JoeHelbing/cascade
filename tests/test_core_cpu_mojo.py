@@ -1,4 +1,5 @@
 import csv
+import math
 import subprocess
 import unittest
 from pathlib import Path
@@ -70,25 +71,27 @@ class CoreCpuMojoTests(unittest.TestCase):
         self.assertEqual(len(rows), 27)  # 6 citizens + 3 security across 3 trace snapshots
         self.assertEqual(sum(1 for row in rows if row["agent_type"] == "Security"), 9)
 
-    def test_initial_agent_placement_is_unique_and_spread_across_grid(self):
-        # Arrange / Act
+    def run_core_rows(self, *args: str) -> list[dict[str, str]]:
         result = subprocess.run(
-            [
-                str(CORE_BINARY),
-                "--width", "8",
-                "--height", "8",
-                "--citizen-density", "0.5",
-                "--security-density", "0.0",
-                "--max-iters", "0",
-                "--seed", "1",
-                "--movement", "false",
-            ],
+            [str(CORE_BINARY), *args],
             cwd=REPO_ROOT,
             check=True,
             text=True,
             capture_output=True,
         )
-        rows = list(csv.DictReader(line for line in result.stdout.splitlines() if not line.startswith("#")))
+        return list(csv.DictReader(line for line in result.stdout.splitlines() if not line.startswith("#")))
+
+    def test_initial_agent_placement_is_unique_and_spread_across_grid(self):
+        # Arrange / Act
+        rows = self.run_core_rows(
+            "--width", "8",
+            "--height", "8",
+            "--citizen-density", "0.5",
+            "--security-density", "0.0",
+            "--max-iters", "0",
+            "--seed", "1",
+            "--movement", "false",
+        )
         positions = [(int(row["x"]), int(row["y"])) for row in rows if row["step"] == "0"]
 
         # Assert
@@ -96,6 +99,59 @@ class CoreCpuMojoTests(unittest.TestCase):
         self.assertEqual(len(set(positions)), len(positions))
         self.assertGreater(len({x for x, _ in positions}), 4)
         self.assertGreater(len({y for _, y in positions}), 4)
+
+    def test_agent_placement_remains_unique_after_movement_steps(self):
+        # Arrange / Act
+        rows = self.run_core_rows(
+            "--width", "8",
+            "--height", "8",
+            "--citizen-density", "0.5",
+            "--security-density", "0.0",
+            "--max-iters", "4",
+            "--seed", "5",
+            "--movement", "true",
+        )
+
+        # Assert
+        for step in {row["step"] for row in rows}:
+            positions = [(int(row["x"]), int(row["y"])) for row in rows if row["step"] == step and row["x"]]
+            self.assertEqual(len(set(positions)), len(positions), step)
+
+    def test_decision_math_matches_original_python_formulas_from_trace_fields(self):
+        # Arrange / Act
+        rows = self.run_core_rows(
+            "--width", "8",
+            "--height", "8",
+            "--citizen-vision", "2",
+            "--citizen-density", "0.2",
+            "--security-density", "0.05",
+            "--max-iters", "0",
+            "--seed", "9",
+            "--movement", "false",
+        )
+        citizen = next(row for row in rows if row["agent_type"] == "Citizen")
+
+        # Assert
+        active = int(citizen["active_in_vision"])
+        oppose = int(citizen["oppose_in_vision"])
+        support = int(citizen["support_in_vision"])
+        security = int(citizen["security_in_vision"])
+        epsilon = float(citizen["epsilon"])
+        epsilon_probability = 1.0 / (1.0 + math.exp(-epsilon))
+        private_preference = float(citizen["private_preference"])
+        perception = (active + oppose * epsilon_probability) ** ((epsilon**2 + 1.0) ** -1)
+        arrest_prob = 1.0 - math.exp(-2.3 * (security / active) * (2.0 * epsilon_probability))
+        opinion = -private_preference + perception * ((active + oppose) / support)
+        activation = 1.0 / (1.0 + math.exp(-opinion))
+        active_level = activation if False else 1.0 / (1.0 + math.exp(-(opinion - float(citizen["active_threshold"])))) - arrest_prob
+        oppose_level = 1.0 / (1.0 + math.exp(-(opinion - float(citizen["oppose_threshold"])))) - arrest_prob
+
+        self.assertAlmostEqual(float(citizen["perception"]), perception, places=12)
+        self.assertAlmostEqual(float(citizen["arrest_prob"]), arrest_prob, places=12)
+        self.assertAlmostEqual(float(citizen["opinion"]), opinion, places=12)
+        self.assertAlmostEqual(float(citizen["activation"]), activation, places=12)
+        self.assertAlmostEqual(float(citizen["active_level"]), active_level, places=12)
+        self.assertAlmostEqual(float(citizen["oppose_level"]), oppose_level, places=12)
 
 
 if __name__ == "__main__":
